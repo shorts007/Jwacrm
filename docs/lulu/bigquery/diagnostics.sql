@@ -230,5 +230,48 @@ FROM (
   GROUP BY number HAVING COUNT(*) > 1
 );
 
+-- 22) WHICH stores disagree? (store values found in the copies of the same order)
+WITH g AS (
+  SELECT number,
+         ARRAY_TO_STRING(ARRAY_AGG(DISTINCT CAST(storeid AS STRING) ORDER BY CAST(storeid AS STRING)), ' vs ') AS stores,
+         COUNT(DISTINCT storeid) AS n
+  FROM `myecomlulu.jackpot.ksa_jackpot`
+  WHERE number IS NOT NULL AND storeid IS NOT NULL
+  GROUP BY number
+)
+SELECT stores, COUNT(*) AS orders FROM g WHERE n > 1 GROUP BY stores ORDER BY orders DESC LIMIT 20;
+
+-- 23) GROUND TRUTH: for orders whose copies disagree on store, which value matches the picking system?
+--     (instaleap_raw records the store that actually fulfilled the order; available from Apr 2026.)
+WITH items AS (
+  SELECT DISTINCT REGEXP_EXTRACT(job_number, r'^Lulu-(\d+)') AS n,
+         CAST(REGEXP_EXTRACT(store_name_1, r'^(\d{4})') AS INT64) AS item_store
+  FROM `myecomlulu.jackpot.instaleap_raw`
+  WHERE store_name_1 IS NOT NULL
+),
+conflicting AS (
+  SELECT number FROM `myecomlulu.jackpot.ksa_jackpot`
+  WHERE number IS NOT NULL AND storeid IS NOT NULL
+  GROUP BY number HAVING COUNT(DISTINCT storeid) > 1
+)
+SELECT o.storeid AS store_in_this_copy, i.item_store AS store_that_fulfilled,
+       o.storeid = i.item_store AS copy_is_correct, COUNT(*) AS copies
+FROM `myecomlulu.jackpot.ksa_jackpot` AS o
+JOIN conflicting AS c USING (number)
+JOIN items AS i ON CAST(o.number AS STRING) = i.n
+WHERE o.storeid IS NOT NULL
+GROUP BY 1, 2, 3 ORDER BY copies DESC LIMIT 30;
+
+-- 24) WHICH cities disagree between copies of the same order? (decides who is "in Jeddah")
+WITH g AS (
+  SELECT number,
+         ARRAY_TO_STRING(ARRAY_AGG(DISTINCT shipping_address_city_name ORDER BY shipping_address_city_name), ' vs ') AS cities,
+         COUNT(DISTINCT shipping_address_city_name) AS n
+  FROM `myecomlulu.jackpot.ksa_jackpot`
+  WHERE number IS NOT NULL AND shipping_address_city_name IS NOT NULL
+  GROUP BY number
+)
+SELECT cities, COUNT(*) AS orders FROM g WHERE n > 1 GROUP BY cities ORDER BY orders DESC LIMIT 20;
+
 -- Supabase (SQL editor, not BigQuery): how many profiles are stale / when were they last written?
 --   select active, date_trunc('hour', synced_at) as last_written, count(*) from lulu_customer_profiles group by 1, 2 order by 2 desc;

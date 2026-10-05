@@ -22,3 +22,10 @@ Decision (Oct 2026): phase 1 focuses on the **western province** — Riyadh/East
 - Store now comes from `storeid` on every order (no item-table join needed); names come from the item table's store labels.
 - Phase 1 focus = **Jeddah** only; Riyadh / Dammam rows are not loaded yet.
 - New per-customer insights: preferred store & channel, stores used, discount behaviour (Offer-driven / Mixed / Full-price).
+
+## Duplicate orders disagree on store and city (Oct 2026)
+81,414 order numbers appear more than once (97,982 extra rows). Copies agree on amount and phone (0 conflicts), but
+**40,528 orders have conflicting `storeid`** and **7,087 have conflicting city**. After de-duplication Jeddah store 3810 (Al Marwa)
+holds 26,726 orders and 3805 (Amir Fawaz) 20,274, versus 6,469 / 40,500 when duplicates were counted. All other stores are unchanged.
+Spend, order counts, recency and frequency are NOT affected (amount and phone never conflict); store-based and city-based
+features are, until diagnostics #22-#24 show which copy is right.
