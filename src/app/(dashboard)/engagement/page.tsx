@@ -81,11 +81,8 @@ export default function EngagementPage() {
           base().eq("lifecycle_stage", "FIRST_ORDER"),
           base().eq("vip_flag", true),
           base().eq("marketing_opt_in", true),
-          // Reachable today: opted in, no open complaint, linked to a WhatsApp contact.
-          base()
-            .eq("marketing_opt_in", true)
-            .eq("active_complaint", false)
-            .not("contact_id", "is", null),
+          // Reachable: opted in and no open complaint. (A WhatsApp contact is created at send time.)
+          base().eq("marketing_opt_in", true).eq("active_complaint", false),
           supabase
             .from("lulu_customer_sync_log")
             .select("finished_at, data_as_of, status, rows_upserted, rows_failed")
@@ -219,7 +216,7 @@ export default function EngagementPage() {
           title="Campaign eligible"
           value={counts ? fmt(counts.campaignEligible) : "—"}
           icon={UserCheck}
-          subtitle="Opted in, no open complaint, linked to WhatsApp contact"
+          subtitle="Opted in, no open complaint (contact is created when a message is sent)"
         />
         <MetricCard
           title="Suspected shared / fake"

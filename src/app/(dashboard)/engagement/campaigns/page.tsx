@@ -7,6 +7,7 @@ import Link from "next/link";
 import { ArrowLeft, FlaskConical, Loader2, Plus } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { TestPanel } from "./campaigns-test-panel";
 import { DEFAULT_CAMPAIGN_ROWS, PRIORITY_CLASS_BY_TYPE, type CampaignType, type DryRunReport } from "@/lib/lulu";
 
 interface CampaignRow {
@@ -18,6 +19,9 @@ interface CampaignRow {
   status: string;
   mode: string;
   active: boolean;
+  template_name_ar: string | null;
+  template_name_en: string | null;
+  test_phones: string[] | null;
 }
 
 const fmt = (n: number) => n.toLocaleString("en-US");
@@ -47,7 +51,7 @@ export default function CampaignsPage() {
     setLoading(true);
     const { data, error: err } = await createClient()
       .from("lulu_campaigns")
-      .select("id, campaign_code, name, campaign_type, rule_params, status, mode, active")
+      .select("id, campaign_code, name, campaign_type, rule_params, status, mode, active, template_name_ar, template_name_en, test_phones")
       .eq("account_id", accountId)
       .order("priority");
     if (err) setError(err.message);
@@ -188,6 +192,8 @@ export default function CampaignsPage() {
           </table>
         </div>
       )}
+
+      {campaigns.length > 0 && <TestPanel campaigns={campaigns} onSaved={() => void load()} />}
 
       {dryError && (
         <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{dryError}</div>

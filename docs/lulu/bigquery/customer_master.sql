@@ -14,8 +14,8 @@
 --   3. instaleap_raw.job_number = 'Lulu-<order number>INP1' → order number
 --      is extracted and joined to ksa_jackpot.number (used ONLY for
 --      preferred store / category; everything else works without the join).
---   4. A phone used by many different FIRST NAMES, or with an implausible
---      number of orders, is a shared/dummy number (e.g. 966558052159: 1,268
+--   4. A phone used by many different FIRST NAMES, or by 2+ names with an
+--      implausible number of orders, is a shared/dummy number (e.g. 966558052159: 1,268
 --      orders, 796 names). It is KEPT in the output but flagged with
 --      `suspect_reason`, so the app can show it and exclude it from
 --      campaigns, counts and scoring. E-mail count alone is not used as the
@@ -72,7 +72,9 @@ phone_quality AS (
     NULLIF(ARRAY_TO_STRING([
       IF(COUNT(DISTINCT first_name) > (SELECT max_names_per_phone FROM params),
          CONCAT('many_names:', CAST(COUNT(DISTINCT first_name) AS STRING)), NULL),
-      IF(COUNT(*) > (SELECT max_orders_per_phone FROM params),
+      -- a single named person with many orders is a heavy buyer / small business, NOT a fake:
+      -- the order-count rule only applies when 2+ different names share the phone
+      IF(COUNT(*) > (SELECT max_orders_per_phone FROM params) AND COUNT(DISTINCT first_name) >= 2,
          CONCAT('many_orders:', CAST(COUNT(*) AS STRING)), NULL)
     ], ','), '') AS suspect_reason
   FROM orders_raw
