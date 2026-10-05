@@ -10,6 +10,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { MetricCard } from "@/components/dashboard/metric-card";
+import { InsightsPanel } from "./insights-panel";
 
 interface Counts {
   total: number;
@@ -55,6 +56,7 @@ export default function EngagementPage() {
   const [suspects, setSuspects] = useState<Suspect[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const load = useCallback(async () => {
     if (!accountId) return;
@@ -123,6 +125,7 @@ export default function EngagementPage() {
         suspects: suspectCount.count ?? 0,
       });
       setSuspects((suspectRows.data as Suspect[] | null) ?? []);
+      setRefreshKey((k) => k + 1);
       setSync((syncRes.data?.[0] as SyncInfo | undefined) ?? null);
     } catch (e) {
       setError(
@@ -230,6 +233,8 @@ export default function EngagementPage() {
           icon={BellOff}
         />
       </div>
+
+      {accountId && counts && counts.total > 0 && <InsightsPanel accountId={accountId} refreshKey={refreshKey} />}
 
       {suspects.length > 0 && (
         <div className="rounded-xl border border-border bg-card">

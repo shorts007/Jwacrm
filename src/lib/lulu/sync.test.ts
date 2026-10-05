@@ -67,3 +67,19 @@ describe("extractDataAsOf", () => {
     expect(extractDataAsOf("garbage", [])).toBeNull();
   });
 });
+
+describe("parseCustomer — insight fields", () => {
+  it("parses store, channel and discount behaviour (BigQuery sends numbers as strings)", () => {
+    const r = parseCustomer(
+      { customer_id: "1", mobile: "966592266779", preferred_store_id: "3805", stores_used: "2", preferred_channel: "iOS",
+        price_sensitivity: "Offer-driven", discount_order_share: "0.8333", avg_discount_pct: "19.6", total_discount: "250.4" },
+      NOW,
+    );
+    expect(r).toMatchObject({ preferred_store_id: 3805, stores_used: 2, preferred_channel: "ios", price_sensitivity: "Offer-driven",
+      discount_order_share: 0.8333, avg_discount_pct: 19.6, total_discount: 250.4 });
+  });
+  it("ignores unknown sensitivity labels and clamps the share", () => {
+    const r = parseCustomer({ customer_id: "1", mobile: "966592266779", price_sensitivity: "cheap", discount_order_share: 3 }, NOW);
+    expect(r).toMatchObject({ price_sensitivity: null, discount_order_share: 1, preferred_channel: null });
+  });
+});

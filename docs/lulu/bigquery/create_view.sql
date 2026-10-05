@@ -5,44 +5,47 @@ CREATE OR REPLACE VIEW `myecomlulu.jackpot.lulu_customer_master` AS
 -- LuLu customer master  →  feeds POST /api/v1/lulu/customers/sync
 --
 -- Sources
---   myecomlulu.jackpot.ksa_jackpot     one row per order (phone, name, amount, status)
---   myecomlulu.jackpot.instaleap_raw   one row per order item (store, category, price)
+--   myecomlulu.jackpot.ksa_jackpot     one row per order: phone, name, amount, status, city,
+--                                      discount_amount, client_type (ios/android/default…), storeid
+--   myecomlulu.jackpot.instaleap_raw   one row per order item (category, price) — used ONLY for
+--                                      preferred category and the storeid → store-name lookup
 --
--- Output: ONE ROW PER CUSTOMER, column names match the sync API exactly,
--- so n8n needs no field mapping.
+-- Output: ONE ROW PER CUSTOMER, column names match the sync API exactly.
 --
--- Assumptions (verify with diagnostics.sql BEFORE trusting the output)
+-- Assumptions (verify with diagnostics.sql)
 --   1. No customer_id exists → the normalised phone number IS the customer id.
 --   2. Only orders with status in `valid_statuses` count as purchases.
---   3. instaleap_raw.job_number = 'Lulu-<order number>INP1' → order number
---      is extracted and joined to ksa_jackpot.number (used ONLY for
---      preferred store / category; everything else works without the join).
---   4. A phone used by many different FIRST NAMES, or by 2+ names with an
---      implausible number of orders, is a shared/dummy number (e.g. 966558052159: 1,268
---      orders, 796 names). It is KEPT in the output but flagged with
---      `suspect_reason`, so the app can show it and exclude it from
---      campaigns, counts and scoring. E-mail count alone is not used as the
---      rule (one person can have several e-mails); it is reported for review.
---   5. The data currently starts 2026-06-30, so first_order_date is the first
---      order *in the data*, not necessarily the customer's true first order.
---   6. Categories come out as 3-digit department CODES (e.g. '006'); a
---      code → name lookup table is needed to show names.
---   7. Region: only customers whose latest order city is in `focus_cities` (western province) are
---      returned; RFM quintiles and the VIP cut-off are computed within that focus group.
---   8. Not available in these tables → not emitted: birthday, loyalty_id,
---      marketing_opt_in, language (defaults to 'ar'), active_complaint.
+--   3. `amount` is what the customer PAID (net of discount): in the samples
+--      discount ÷ (amount + discount) = 20.0 % on several orders. If `amount` is the
+--      PRE-discount total instead, set amount_is_net_of_discount = FALSE.
+--   4. discount_amount NULL = "not recorded" (older rows), 0 = "no discount". Discount
+--      statistics use only orders where it is recorded.
+--   5. A phone used by many different FIRST NAMES, or by 2+ names with an implausible number of
+--      orders, is a shared/dummy number. It is KEPT but flagged (`suspect_reason`) so the app can
+--      show it and exclude it from campaigns, counts and scoring.
+--   6. first_order_date is the first order in the data (history currently starts Feb 2025).
+--   7. Region: only customers whose latest order city is in `focus_cities` are returned (phase 1 =
+--      Jeddah). RFM quintiles and the VIP cut-off are computed within that focus group.
+--   8. Categories come out as 3-digit department CODES (e.g. '006'); a code → name table is needed
+--      to show names. Category exists only for orders that match the item table.
+--   9. Not available in these tables → not emitted: birthday, loyalty_id, marketing_opt_in,
+--      language (defaults to 'ar'), active_complaint.
 -- ============================================================
 WITH params AS (
   SELECT
     ['delivered'] AS valid_statuses,   -- add other "completed" status values if any
     3    AS max_names_per_phone,       -- families share a phone; > 3 different first names = suspect
-    60   AS max_orders_per_phone,      -- orders in the whole data window; above this = suspect
+    60   AS max_orders_per_phone,      -- with 2+ names: orders above this = suspect
     0.05 AS vip_top_share,             -- top 5% by lifetime sales ...
     3    AS vip_min_orders,            -- ... with at least 3 orders
-    180  AS item_lookback_days,        -- window for preferred store/category
-    -- PHASE 1 FOCUS: western province. Customers are kept if their LATEST order's city is in this
-    -- list (case-insensitive). Use [] (empty) to include every city. Check spellings with diagnostic #14.
-    ['jeddah', 'makkah', 'mecca', 'taif', 'madinah', 'medina', 'yanbu', 'tabuk'] AS focus_cities,
+    180  AS item_lookback_days,        -- window for preferred category
+    TRUE AS amount_is_net_of_discount, -- see assumption 3
+    0.70 AS offer_driven_share,        -- >= 70 % of (known) orders discounted  → 'Offer-driven'
+    0.20 AS full_price_share,          -- <= 20 % of (known) orders discounted  → 'Full-price'
+    3    AS min_orders_for_sensitivity,
+    -- PHASE 1 FOCUS: Jeddah. Customers are kept if their LATEST order's city is in this list
+    -- (case-insensitive). Use [] to include every city; add e.g. 'makkah','taif','madinah' later.
+    ['jeddah'] AS focus_cities,
     'Asia/Riyadh' AS tz
 ),
 
@@ -51,6 +54,9 @@ orders_raw AS (
     CAST(o.shipping_address_phone_number AS STRING) AS phone,
     o.number AS order_number,
     o.amount,
+    o.discount_amount,
+    NULLIF(LOWER(TRIM(o.client_type)), '') AS client_type,
+    o.storeid,
     o.date_placed,
     DATE(o.date_placed, p.tz) AS order_date,
     LOWER(TRIM(o.customer__email)) AS email,
@@ -75,8 +81,7 @@ phone_quality AS (
     NULLIF(ARRAY_TO_STRING([
       IF(COUNT(DISTINCT first_name) > (SELECT max_names_per_phone FROM params),
          CONCAT('many_names:', CAST(COUNT(DISTINCT first_name) AS STRING)), NULL),
-      -- a single named person with many orders is a heavy buyer / small business, NOT a fake:
-      -- the order-count rule only applies when 2+ different names share the phone
+      -- a single named person with many orders is a heavy buyer / small business, NOT a fake
       IF(COUNT(*) > (SELECT max_orders_per_phone FROM params) AND COUNT(DISTINCT first_name) >= 2,
          CONCAT('many_orders:', CAST(COUNT(*) AS STRING)), NULL)
     ], ','), '') AS suspect_reason
@@ -120,17 +125,57 @@ cust AS (
     COUNTIF(order_date >= DATE_SUB(CURRENT_DATE((SELECT tz FROM params)), INTERVAL 30 DAY)) AS orders_30d,
     COUNTIF(order_date >= DATE_SUB(CURRENT_DATE((SELECT tz FROM params)), INTERVAL 90 DAY)) AS orders_90d,
     ARRAY_AGG(full_name IGNORE NULLS ORDER BY date_placed DESC LIMIT 1)[SAFE_OFFSET(0)] AS name,
-    ARRAY_AGG(city IGNORE NULLS ORDER BY date_placed DESC LIMIT 1)[SAFE_OFFSET(0)] AS city
+    ARRAY_AGG(city IGNORE NULLS ORDER BY date_placed DESC LIMIT 1)[SAFE_OFFSET(0)] AS city,
+    COUNT(DISTINCT storeid) AS stores_used,
+    -- discount behaviour (only orders where discount_amount is recorded)
+    COUNTIF(discount_amount IS NOT NULL) AS orders_with_discount_data,
+    COUNTIF(discount_amount > 0) AS discounted_orders,
+    ROUND(SUM(IFNULL(discount_amount, 0)), 2) AS total_discount,
+    SUM(IF(discount_amount IS NOT NULL,
+           IF((SELECT amount_is_net_of_discount FROM params), amount + discount_amount, amount),
+           0)) AS gross_with_discount_data
   FROM orders
   GROUP BY phone
 ),
 
--- Item-level facts (preferred store / category). Raw table may hold several
--- versions of the same item row → keep the latest per id.
+-- Most-used store and channel (ties → most recent).
+pref_store_id AS (
+  SELECT phone, storeid AS preferred_store_id
+  FROM (
+    SELECT phone, storeid, COUNT(*) AS n, MAX(date_placed) AS last_at
+    FROM orders WHERE storeid IS NOT NULL GROUP BY phone, storeid
+  )
+  WHERE TRUE
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY phone ORDER BY n DESC, last_at DESC) = 1
+),
+pref_channel AS (
+  SELECT phone, client_type AS preferred_channel
+  FROM (
+    SELECT phone, client_type, COUNT(*) AS n, MAX(date_placed) AS last_at
+    FROM orders WHERE client_type IS NOT NULL GROUP BY phone, client_type
+  )
+  WHERE TRUE
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY phone ORDER BY n DESC, last_at DESC) = 1
+),
+
+-- storeid → readable store name, from the item table's store labels
+-- ('3805-LH,AMIR FAWAZ,KSA' → 'AMIR FAWAZ'). Falls back to the bare id.
+store_names AS (
+  SELECT
+    CAST(REGEXP_EXTRACT(store_name_1, r'^(\d{4})') AS INT64) AS storeid,
+    ARRAY_AGG(
+      TRIM(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(store_name_1, r'^\d{4}\s*-\s*', ''), r'^LH[,_ -]*', ''), r',?\s*KSA$', ''))
+      ORDER BY created_at DESC LIMIT 1
+    )[SAFE_OFFSET(0)] AS store_name
+  FROM `myecomlulu.jackpot.instaleap_raw`
+  WHERE REGEXP_CONTAINS(store_name_1, r'^\d{4}')
+  GROUP BY storeid
+),
+
+-- Preferred category (3-digit department code) from the item table, last N days.
 items AS (
   SELECT
     REGEXP_EXTRACT(i.job_number, r'^Lulu-(\d+)') AS order_number_str,  -- strips 'Lulu-' prefix and 'INP1' suffix
-    i.store_name_1 AS store,
     -- regex instead of JSON_VALUE: BigQuery has no SAFE.JSON_VALUE and JSON_VALUE errors on malformed JSON
     SUBSTR(REGEXP_EXTRACT(i.attributes, r'"category"\s*:\s*"(\d+)"'), 1, 3) AS dept,
     IFNULL(i.price, 0) * IFNULL(i.found_quantity, 0) AS item_sales
@@ -141,20 +186,9 @@ items AS (
   QUALIFY ROW_NUMBER() OVER (PARTITION BY i.id ORDER BY i.updated_at DESC) = 1
 ),
 joined AS (
-  SELECT o.phone, o.order_number, it.store, it.dept, it.item_sales
+  SELECT o.phone, it.dept, it.item_sales
   FROM orders AS o
   JOIN items AS it ON CAST(o.order_number AS STRING) = it.order_number_str
-),
-pref_store AS (
-  SELECT phone, store AS preferred_store
-  FROM (
-    SELECT phone, store, COUNT(DISTINCT order_number) AS n
-    FROM joined
-    WHERE store IS NOT NULL
-    GROUP BY phone, store
-  )
-  WHERE TRUE
-  QUALIFY ROW_NUMBER() OVER (PARTITION BY phone ORDER BY n DESC, store) = 1
 ),
 pref_dept AS (
   SELECT phone, dept AS preferred_category
@@ -200,8 +234,23 @@ SELECT
   s.orders_90d,
   cy.median_interval_days,
   cy.stddev_interval_days,
-  ps.preferred_store,
+  -- store: name from the item-table labels, else the bare id
+  CASE WHEN ps.preferred_store_id IS NULL THEN NULL
+       ELSE CONCAT(IFNULL(sn.store_name, 'Store'), ' (', CAST(ps.preferred_store_id AS STRING), ')') END AS preferred_store,
+  ps.preferred_store_id,
+  s.stores_used,
+  pc.preferred_channel,                     -- ios / android / default …
   pd.preferred_category,
+  -- discount behaviour: 'Offer-driven' | 'Mixed' | 'Full-price' | NULL (too little data)
+  CASE
+    WHEN s.orders_with_discount_data < (SELECT min_orders_for_sensitivity FROM params) THEN NULL
+    WHEN SAFE_DIVIDE(s.discounted_orders, s.orders_with_discount_data) >= (SELECT offer_driven_share FROM params) THEN 'Offer-driven'
+    WHEN SAFE_DIVIDE(s.discounted_orders, s.orders_with_discount_data) <= (SELECT full_price_share FROM params) THEN 'Full-price'
+    ELSE 'Mixed'
+  END                                       AS price_sensitivity,
+  ROUND(SAFE_DIVIDE(s.discounted_orders, s.orders_with_discount_data), 4) AS discount_order_share,
+  ROUND(100 * SAFE_DIVIDE(s.total_discount, s.gross_with_discount_data), 1) AS avg_discount_pct,
+  s.total_discount,
   CASE
     WHEN s.suspect_reason IS NOT NULL                THEN 'Suspect'
     WHEN s.total_orders = 1                          THEN 'New'
@@ -226,6 +275,8 @@ SELECT
   -- newest order in the source data; lets the app warn when the feed is stale
   FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%SZ', (SELECT MAX(date_placed) FROM orders_raw)) AS data_as_of
 FROM scored AS s
-LEFT JOIN cycle      AS cy ON cy.phone = s.phone
-LEFT JOIN pref_store AS ps ON ps.phone = s.phone
-LEFT JOIN pref_dept  AS pd ON pd.phone = s.phone;
+LEFT JOIN cycle         AS cy ON cy.phone = s.phone
+LEFT JOIN pref_store_id AS ps ON ps.phone = s.phone
+LEFT JOIN store_names   AS sn ON sn.storeid = ps.preferred_store_id
+LEFT JOIN pref_channel  AS pc ON pc.phone = s.phone
+LEFT JOIN pref_dept     AS pd ON pd.phone = s.phone;

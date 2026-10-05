@@ -14,3 +14,11 @@
 Orders ≈ Riyadh 57 %, Jeddah 15 %, Eastern Province ≈ 25 % of the last 30 days.
 
 Decision (Oct 2026): phase 1 focuses on the **western province** — Riyadh/Eastern product data is not updated. `customer_master.sql` filters by `focus_cities`. Order history in BigQuery starts June 2026, so "first order" means first in the data; message copy for second-order / win-back must not claim "your first order".
+
+## Update (Oct 2026): richer order table
+`ksa_jackpot` now has `discount_amount`, `client_type` (ios / android / default) and `storeid`, and history goes back to **Feb 2025**
+(so personal purchase cycles and "first order" are far more reliable than the June-only data we first saw).
+- `amount` looks **net** of discount: discount ÷ (amount + discount) = exactly 20.0 % on three sample orders, 15.0 % on a fourth. Set `amount_is_net_of_discount` in the SQL if that is wrong.
+- Store now comes from `storeid` on every order (no item-table join needed); names come from the item table's store labels.
+- Phase 1 focus = **Jeddah** only; Riyadh / Dammam rows are not loaded yet.
+- New per-customer insights: preferred store & channel, stores used, discount behaviour (Offer-driven / Mixed / Full-price).

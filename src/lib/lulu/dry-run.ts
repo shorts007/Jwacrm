@@ -23,6 +23,7 @@ export interface DryRunProfileRow {
   active_complaint: boolean;
   suspect_reason: string | null;
   preferred_store: string | null;
+  price_sensitivity?: string | null;
 }
 
 export function profileFromRow(r: DryRunProfileRow): CustomerProfile {
@@ -60,6 +61,8 @@ export interface CampaignDryRun {
   selected: number;
   /** Matched but not sent, by reason (opted_out, ordered_recently, lower_priority, …). */
   blocked: Record<string, number>;
+  /** Of those who would be sent: Offer-driven / Mixed / Full-price / not enough data. */
+  selectedBySensitivity: Record<string, number>;
   samples: DryRunSample[];
 }
 
@@ -93,7 +96,7 @@ export function runDryRun(
   const sim = campaigns.map((c) => ({ ...c, active: true }));
   const thresholds = thresholdsFromCampaigns(sim);
   const byCode = new Map<string, CampaignDryRun>(
-    sim.map((c) => [c.code, { code: c.code, name: c.name ?? c.code, matched: 0, selected: 0, blocked: {}, samples: [] }]),
+    sim.map((c) => [c.code, { code: c.code, name: c.name ?? c.code, matched: 0, selected: 0, blocked: {}, selectedBySensitivity: {}, samples: [] }]),
   );
   const lifecycle: Record<LifecycleStage, number> = {
     NEW: 0, FIRST_ORDER: 0, ACTIVE: 0, AT_RISK: 0, DORMANT: 0, LOST: 0,
@@ -130,6 +133,8 @@ export function runDryRun(
       const c = byCode.get(result.action.campaignCode)!;
       c.matched++;
       c.selected++;
+      const sens = row.price_sensitivity ?? "not enough data";
+      c.selectedBySensitivity[sens] = (c.selectedBySensitivity[sens] ?? 0) + 1;
       if (c.samples.length < SAMPLES_PER_CAMPAIGN) {
         c.samples.push({
           customerId: profile.customerId,
