@@ -3,8 +3,8 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## LuLu customer sync (BigQuery -> WACRM)\n**Before running**\n1. In BigQuery run `docs/lulu/bigquery/create_view.sql` (creates `lulu_customer_master`).\n2. In Supabase run migrations 043-049.\n3. In WACRM: Settings -> API keys -> create a key with scope `contacts:write`.\n4. n8n credentials: *Google BigQuery* (service account with BigQuery Data Viewer + Job User) and *Header Auth* (name `Authorization`, value `Bearer <your key>`) - used by BOTH HTTP nodes.\n5. URLs point at https://jwacrm.vercel.app - change them if your domain differs.\n\n**How a run works:** all customers are sent in batches tagged with one run id. Only if every batch saved, the last step retires customers no longer in the feed (they are hidden, not deleted, and come back automatically if they reappear). A partial run never retires anyone.\n\nRun **Manual** first and check `/engagement`. The schedule is off until you activate the workflow.",
-        "height": 330,
+        "content": "## LuLu customer sync (BigQuery -> WACRM)\n**Before running**\n1. In BigQuery run `docs/lulu/bigquery/create_view.sql` (creates `lulu_customer_master`) AND `create_insights_view.sql` (creates `lulu_insights_metrics`).\n2. In Supabase run migrations 043-050.\n3. In WACRM: Settings -> API keys -> create a key with scope `contacts:write`.\n4. n8n credentials: *Google BigQuery* (service account with BigQuery Data Viewer + Job User) and *Header Auth* (name `Authorization`, value `Bearer <your key>`) - used by BOTH HTTP nodes.\n5. URLs point at https://jwacrm.vercel.app - change them if your domain differs.\n\n**How a run works:** all customers are sent in batches tagged with one run id. Only if every batch saved, the last step retires customers no longer in the feed (they are hidden, not deleted, and come back automatically if they reappear). A partial run never retires anyone.\n\nRun **Manual** first and check `/engagement`. The schedule is off until you activate the workflow.\n\n**Two branches:** top = customers (batches + finish), bottom = the Customer Insights snapshot (one request).",
+        "height": 440,
         "width": 520,
         "color": 4
       },
@@ -209,6 +209,65 @@
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "projectId": {
+          "__rl": true,
+          "value": "myecomlulu",
+          "mode": "id"
+        },
+        "sqlQuery": "SELECT * FROM `myecomlulu.jackpot.lulu_insights_metrics`",
+        "options": {}
+      },
+      "id": "n-bq-ins",
+      "name": "BigQuery insights metrics",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2.1,
+      "position": [
+        260,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// All insight rows go in ONE request (a few thousand aggregate rows, no personal data).\nconst rows = $input.all().map(i => i.json);\nif (rows.length === 0) throw new Error('lulu_insights_metrics returned 0 rows - run create_insights_view.sql');\nreturn [{ json: { rows } }];"
+      },
+      "id": "n-ins-build",
+      "name": "Build insights payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        520
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://jwacrm.vercel.app/api/v1/lulu/insights/sync",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ rows: $json.rows }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "n-ins-post",
+      "name": "POST insights snapshot",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        520
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     }
   ],
   "connections": {
@@ -217,6 +276,11 @@
         [
           {
             "node": "BigQuery customer master",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "BigQuery insights metrics",
             "type": "main",
             "index": 0
           }
@@ -228,6 +292,11 @@
         [
           {
             "node": "BigQuery customer master",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "BigQuery insights metrics",
             "type": "main",
             "index": 0
           }
@@ -317,6 +386,28 @@
           }
         ],
         []
+      ]
+    },
+    "BigQuery insights metrics": {
+      "main": [
+        [
+          {
+            "node": "Build insights payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build insights payload": {
+      "main": [
+        [
+          {
+            "node": "POST insights snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },

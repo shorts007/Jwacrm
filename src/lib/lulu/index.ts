@@ -8,3 +8,4 @@ export * from "./defaults";
 export * from "./dry-run";
 export * from "./messages";
 export * from "./template-defs";
+export * from "./insights";
