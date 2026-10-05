@@ -31,3 +31,8 @@ Spend, order counts, recency and frequency are NOT affected (amount and phone ne
 features are, until diagnostics #22-#24 show which copy is right.
 
 Confirmed by the business: when copies of an order disagree, **3810 (Al Marwa) is the correct store** and 3805 is a wrong default on some appended rows. `customer_master.sql` now prefers a copy whose store is not `unreliable_default_storeid` (3805). Verify with diagnostic #25.
+
+## Store & city reconciliation (Oct 2026)
+- City conflicts between copies are 'Jeddah' vs a Jeddah DISTRICT ('Al Bawadi', 'Al-Marwa', 'Al Safa', 'Aziziyah'…) plus a few 'Jeddah vs Yanbu / Makkah'. City is therefore not a reliable region key; the Jeddah focus is now defined by store.
+- Diagnostic #25: after preferring non-3805 copies, store 3810 agrees with the picking system for only 76.4 % of 21,648 checked orders (all other stores 100 %), and 3805 does not appear at all. ~5,100 orders labelled 3810 were picked elsewhere — most likely 3805 (Amir Fawaz had ~5,160 picking jobs). The view now uses the picking-system store whenever it exists (`prefer_picking_store`).
+- `many_orders` suspect rule now looks at the last 90 days (a household with 87 orders over 20 months was wrongly flagged).
