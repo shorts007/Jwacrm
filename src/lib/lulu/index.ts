@@ -7,3 +7,4 @@ export * from "./sync";
 export * from "./defaults";
 export * from "./dry-run";
 export * from "./messages";
+export * from "./template-defs";

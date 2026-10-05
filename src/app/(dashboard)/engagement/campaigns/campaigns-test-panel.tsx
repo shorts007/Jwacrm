@@ -98,7 +98,7 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
   return (
     <div className="space-y-4 rounded-xl border border-border bg-card p-4">
       <div>
-        <h2 className="text-sm font-semibold text-foreground">Test mode</h2>
+        <h2 className="text-sm font-semibold text-foreground">Step 2 — Test mode</h2>
         <p className="text-xs text-muted-foreground">
           Sends the template to your internal test numbers only — never to customers. The template must be APPROVED in Meta, and
           with Meta&rsquo;s free test sender each recipient must first be added to its allowed list.

@@ -8,6 +8,7 @@ import { ArrowLeft, FlaskConical, Loader2, Plus } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { TestPanel } from "./campaigns-test-panel";
+import { LuluTemplatesPanel } from "./lulu-templates-panel";
 import { DEFAULT_CAMPAIGN_ROWS, PRIORITY_CLASS_BY_TYPE, type CampaignType, type DryRunReport } from "@/lib/lulu";
 
 interface CampaignRow {
@@ -192,6 +193,8 @@ export default function CampaignsPage() {
           </table>
         </div>
       )}
+
+      <LuluTemplatesPanel />
 
       {campaigns.length > 0 ? (
         <TestPanel campaigns={campaigns} onSaved={() => void load()} />
