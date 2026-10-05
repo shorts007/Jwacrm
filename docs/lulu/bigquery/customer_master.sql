@@ -20,7 +20,8 @@
 --   5. A phone used by many different FIRST NAMES, or by 2+ names with an implausible number of
 --      orders, is a shared/dummy number. It is KEPT but flagged (`suspect_reason`) so the app can
 --      show it and exclude it from campaigns, counts and scoring.
---   6. first_order_date is the first order in the data (history currently starts Feb 2025).
+--   6. first_order_date is the first order in the data (history currently starts Jan/Feb 2025).
+--      Duplicate rows per order `number` are removed (see orders_raw).
 --   7. Region: only customers whose latest order city is in `focus_cities` are returned (phase 1 =
 --      Jeddah). RFM quintiles and the VIP cut-off are computed within that focus group.
 --   8. Categories come out as 3-digit department CODES (e.g. '006'); a code → name table is needed
@@ -52,7 +53,8 @@ orders_raw AS (
     o.number AS order_number,
     o.amount,
     o.discount_amount,
-    NULLIF(LOWER(TRIM(o.client_type)), '') AS client_type,
+    -- 'default' = the website
+    CASE WHEN LOWER(TRIM(o.client_type)) = 'default' THEN 'website' ELSE NULLIF(LOWER(TRIM(o.client_type)), '') END AS client_type,
     o.storeid,
     o.date_placed,
     DATE(o.date_placed, p.tz) AS order_date,
@@ -66,7 +68,13 @@ orders_raw AS (
     AND o.number IS NOT NULL
     AND o.date_placed IS NOT NULL
     AND LOWER(o.status) IN UNNEST(p.valid_statuses)
-  QUALIFY ROW_NUMBER() OVER (PARTITION BY o.number ORDER BY o.date_placed DESC) = 1
+  -- One row per order number. The table contains duplicates (old data was appended): keep the copy
+  -- that has the new columns filled in, then the latest timestamp.
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY o.number
+    ORDER BY (o.storeid IS NOT NULL) DESC, (o.client_type IS NOT NULL) DESC,
+             (o.discount_amount IS NOT NULL) DESC, o.date_placed DESC
+  ) = 1
 ),
 
 -- Per-phone data-quality stats (computed on ALL delivered orders).
@@ -236,7 +244,7 @@ SELECT
        ELSE CONCAT(IFNULL(sn.store_name, 'Store'), ' (', CAST(ps.preferred_store_id AS STRING), ')') END AS preferred_store,
   ps.preferred_store_id,
   s.stores_used,
-  pc.preferred_channel,                     -- ios / android / default …
+  pc.preferred_channel,                     -- ios / android / website
   pd.preferred_category,
   -- discount behaviour: 'Offer-driven' | 'Mixed' | 'Full-price' | NULL (too little data)
   CASE

@@ -64,6 +64,7 @@ export interface CampaignConfig {
     inactiveDays?: number; // fixed-day fallback, default 15
     winbackDays?: number; // default 30
     lostDays?: number; // default 60
+    lostMaxDays?: number; // default 180: customers inactive longer than this are left alone
     secondOrderAfterDays?: number; // default 7
     birthdayWindowDays?: number; // default 0 (today only)
     secondOrderMaxDays?: number; // default = dormant threshold (30): after that WINBACK_30 takes over

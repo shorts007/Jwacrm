@@ -63,6 +63,24 @@ describe("single-order customers", () => {
   });
 });
 
+describe("lost-customer window", () => {
+  const run = (lastOrder: string) =>
+    decideNextBestAction({
+      profile: { customerId: "c", mobile: "+966500000000", language: "ar", totalOrders: 2, totalSales: 100,
+        lastOrderDate: lastOrder, vipFlag: false, marketingOptIn: true, activeComplaint: false },
+      campaigns, policy: DEFAULT_POLICY, history: [], now: NOW,
+    });
+  it("LOST_60 reaches 60-180 days but not a year-old customer", () => {
+    expect(run("2026-06-30").action?.campaignCode).toBe("LOST_60"); // 86 days
+    expect(run("2025-09-01").action).toBeNull(); // ~13 months
+  });
+  it("dry run counts those left alone", () => {
+    const rep = runDryRun([row({ customer_id: "old", total_orders: 2, last_order_date: "2025-09-01" })], campaigns, DEFAULT_POLICY, NOW);
+    expect(rep.beyondLostWindow).toBe(1);
+    expect(rep.customersWithAction).toBe(0);
+  });
+});
+
 describe("runDryRun", () => {
   const rows = [
     row({ customer_id: "a", total_orders: 1, last_order_date: "2026-09-02" }), // SECOND_ORDER

@@ -173,3 +173,30 @@ SELECT ROUND(100 * discount_amount / (amount + discount_amount)) AS pct_if_net,
 FROM `myecomlulu.jackpot.ksa_jackpot`
 WHERE discount_amount > 0 AND amount > 0 AND LOWER(status) = 'delivered'
 GROUP BY pct_if_net, pct_if_gross ORDER BY orders DESC LIMIT 15;
+
+-- 18) Duplicate orders (old data was appended). How many order numbers have more than one row,
+--     and does one copy have the new columns while the other doesn't?
+SELECT COUNT(*) AS total_rows, COUNT(DISTINCT number) AS unique_orders,
+       COUNT(*) - COUNT(DISTINCT number) AS duplicate_rows
+FROM `myecomlulu.jackpot.ksa_jackpot` WHERE number IS NOT NULL;
+
+WITH d AS (
+  SELECT number, COUNT(*) AS copies, COUNTIF(storeid IS NOT NULL) AS copies_with_store
+  FROM `myecomlulu.jackpot.ksa_jackpot` WHERE number IS NOT NULL
+  GROUP BY number HAVING COUNT(*) > 1
+)
+SELECT copies, copies_with_store, COUNT(*) AS orders FROM d GROUP BY copies, copies_with_store ORDER BY orders DESC;
+
+-- 19) How long ago did the Jeddah customers last order? (run after creating the view)
+SELECT CASE
+         WHEN DATE_DIFF(CURRENT_DATE('Asia/Riyadh'), DATE(last_order_date), DAY) < 15  THEN '0-14 days'
+         WHEN DATE_DIFF(CURRENT_DATE('Asia/Riyadh'), DATE(last_order_date), DAY) < 30  THEN '15-29 days'
+         WHEN DATE_DIFF(CURRENT_DATE('Asia/Riyadh'), DATE(last_order_date), DAY) < 60  THEN '30-59 days'
+         WHEN DATE_DIFF(CURRENT_DATE('Asia/Riyadh'), DATE(last_order_date), DAY) < 90  THEN '60-89 days'
+         WHEN DATE_DIFF(CURRENT_DATE('Asia/Riyadh'), DATE(last_order_date), DAY) < 180 THEN '90-179 days'
+         WHEN DATE_DIFF(CURRENT_DATE('Asia/Riyadh'), DATE(last_order_date), DAY) < 365 THEN '180-364 days'
+         ELSE '1 year +' END AS last_order_ago,
+       COUNT(*) AS customers
+FROM `myecomlulu.jackpot.lulu_customer_master`
+WHERE suspect_reason IS NULL
+GROUP BY last_order_ago ORDER BY MIN(DATE_DIFF(CURRENT_DATE('Asia/Riyadh'), DATE(last_order_date), DAY));

@@ -227,6 +227,8 @@ export default function CampaignsPage() {
             )}
             <p className="mt-2 text-xs text-muted-foreground">
               Lifecycle: {Object.entries(dry.report.lifecycle).map(([k, v]) => `${k} ${fmt(v)}`).join(" · ")}
+              {dry.report.beyondLostWindow > 0 &&
+                ` — ${fmt(dry.report.beyondLostWindow)} of the Lost customers have been gone for over 6 months and are deliberately left alone.`}
             </p>
           </div>
 
