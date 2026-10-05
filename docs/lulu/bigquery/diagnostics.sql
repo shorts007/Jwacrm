@@ -173,3 +173,127 @@ SELECT ROUND(100 * discount_amount / (amount + discount_amount)) AS pct_if_net,
 FROM `myecomlulu.jackpot.ksa_jackpot`
 WHERE discount_amount > 0 AND amount > 0 AND LOWER(status) = 'delivered'
 GROUP BY pct_if_net, pct_if_gross ORDER BY orders DESC LIMIT 15;
+
+-- 18) Duplicate orders (old data was appended). How many order numbers have more than one row,
+--     and does one copy have the new columns while the other doesn't?
+SELECT COUNT(*) AS total_rows, COUNT(DISTINCT number) AS unique_orders,
+       COUNT(*) - COUNT(DISTINCT number) AS duplicate_rows
+FROM `myecomlulu.jackpot.ksa_jackpot` WHERE number IS NOT NULL;
+
+WITH d AS (
+  SELECT number, COUNT(*) AS copies, COUNTIF(storeid IS NOT NULL) AS copies_with_store
+  FROM `myecomlulu.jackpot.ksa_jackpot` WHERE number IS NOT NULL
+  GROUP BY number HAVING COUNT(*) > 1
+)
+SELECT copies, copies_with_store, COUNT(*) AS orders FROM d GROUP BY copies, copies_with_store ORDER BY orders DESC;
+
+-- 19) How long ago did the Jeddah customers last order? (run after creating the view)
+SELECT CASE
+         WHEN DATE_DIFF(CURRENT_DATE('Asia/Riyadh'), DATE(last_order_date), DAY) < 15  THEN '0-14 days'
+         WHEN DATE_DIFF(CURRENT_DATE('Asia/Riyadh'), DATE(last_order_date), DAY) < 30  THEN '15-29 days'
+         WHEN DATE_DIFF(CURRENT_DATE('Asia/Riyadh'), DATE(last_order_date), DAY) < 60  THEN '30-59 days'
+         WHEN DATE_DIFF(CURRENT_DATE('Asia/Riyadh'), DATE(last_order_date), DAY) < 90  THEN '60-89 days'
+         WHEN DATE_DIFF(CURRENT_DATE('Asia/Riyadh'), DATE(last_order_date), DAY) < 180 THEN '90-179 days'
+         WHEN DATE_DIFF(CURRENT_DATE('Asia/Riyadh'), DATE(last_order_date), DAY) < 365 THEN '180-364 days'
+         ELSE '1 year +' END AS last_order_ago,
+       COUNT(*) AS customers
+FROM `myecomlulu.jackpot.lulu_customer_master`
+WHERE suspect_reason IS NULL
+GROUP BY last_order_ago ORDER BY MIN(DATE_DIFF(CURRENT_DATE('Asia/Riyadh'), DATE(last_order_date), DAY));
+
+-- 20) Store distribution of Jeddah customers, computed EXACTLY like the customer master (deduped).
+--     Compare with the "By store" table on /engagement.
+WITH o AS (
+  SELECT * FROM `myecomlulu.jackpot.ksa_jackpot`
+  WHERE LOWER(status) = 'delivered' AND number IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY number
+    ORDER BY (storeid IS NOT NULL) DESC, (client_type IS NOT NULL) DESC, (discount_amount IS NOT NULL) DESC, date_placed DESC) = 1
+)
+SELECT storeid, COUNT(*) AS orders, COUNT(DISTINCT shipping_address_phone_number) AS customers,
+       MIN(DATE(date_placed)) AS first_day, MAX(DATE(date_placed)) AS last_day
+FROM o WHERE LOWER(shipping_address_city_name) = 'jeddah'
+GROUP BY storeid ORDER BY orders DESC;
+
+-- 21) Do duplicate copies of the same order DISAGREE? (a wrong default storeid on appended rows would show here)
+SELECT
+  COUNTIF(stores > 1)  AS orders_with_conflicting_store,
+  COUNTIF(amounts > 1) AS orders_with_conflicting_amount,
+  COUNTIF(cities > 1)  AS orders_with_conflicting_city,
+  COUNTIF(phones > 1)  AS orders_with_conflicting_phone,
+  COUNT(*)             AS duplicated_orders
+FROM (
+  SELECT number, COUNT(DISTINCT storeid) AS stores, COUNT(DISTINCT amount) AS amounts,
+         COUNT(DISTINCT shipping_address_city_name) AS cities, COUNT(DISTINCT shipping_address_phone_number) AS phones
+  FROM `myecomlulu.jackpot.ksa_jackpot`
+  WHERE number IS NOT NULL
+  GROUP BY number HAVING COUNT(*) > 1
+);
+
+-- 22) WHICH stores disagree? (store values found in the copies of the same order)
+WITH g AS (
+  SELECT number,
+         ARRAY_TO_STRING(ARRAY_AGG(DISTINCT CAST(storeid AS STRING) ORDER BY CAST(storeid AS STRING)), ' vs ') AS stores,
+         COUNT(DISTINCT storeid) AS n
+  FROM `myecomlulu.jackpot.ksa_jackpot`
+  WHERE number IS NOT NULL AND storeid IS NOT NULL
+  GROUP BY number
+)
+SELECT stores, COUNT(*) AS orders FROM g WHERE n > 1 GROUP BY stores ORDER BY orders DESC LIMIT 20;
+
+-- 23) GROUND TRUTH: for orders whose copies disagree on store, which value matches the picking system?
+--     (instaleap_raw records the store that actually fulfilled the order; available from Apr 2026.)
+WITH items AS (
+  SELECT DISTINCT REGEXP_EXTRACT(job_number, r'^Lulu-(\d+)') AS n,
+         CAST(REGEXP_EXTRACT(store_name_1, r'^(\d{4})') AS INT64) AS item_store
+  FROM `myecomlulu.jackpot.instaleap_raw`
+  WHERE store_name_1 IS NOT NULL
+),
+conflicting AS (
+  SELECT number FROM `myecomlulu.jackpot.ksa_jackpot`
+  WHERE number IS NOT NULL AND storeid IS NOT NULL
+  GROUP BY number HAVING COUNT(DISTINCT storeid) > 1
+)
+SELECT o.storeid AS store_in_this_copy, i.item_store AS store_that_fulfilled,
+       o.storeid = i.item_store AS copy_is_correct, COUNT(*) AS copies
+FROM `myecomlulu.jackpot.ksa_jackpot` AS o
+JOIN conflicting AS c USING (number)
+JOIN items AS i ON CAST(o.number AS STRING) = i.n
+WHERE o.storeid IS NOT NULL
+GROUP BY 1, 2, 3 ORDER BY copies DESC LIMIT 30;
+
+-- 24) WHICH cities disagree between copies of the same order? (decides who is "in Jeddah")
+WITH g AS (
+  SELECT number,
+         ARRAY_TO_STRING(ARRAY_AGG(DISTINCT shipping_address_city_name ORDER BY shipping_address_city_name), ' vs ') AS cities,
+         COUNT(DISTINCT shipping_address_city_name) AS n
+  FROM `myecomlulu.jackpot.ksa_jackpot`
+  WHERE number IS NOT NULL AND shipping_address_city_name IS NOT NULL
+  GROUP BY number
+)
+SELECT cities, COUNT(*) AS orders FROM g WHERE n > 1 GROUP BY cities ORDER BY orders DESC LIMIT 20;
+
+-- 25) VERIFY the store rule: after de-duplication (3805 treated as the unreliable default), how often does each
+--     store agree with the store that actually picked the order? (Apr 2026 onwards, Jeddah). Expect ~100 %.
+WITH o AS (
+  SELECT * FROM `myecomlulu.jackpot.ksa_jackpot`
+  WHERE LOWER(status) = 'delivered' AND number IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY number
+    ORDER BY (storeid IS NOT NULL AND storeid != 3805) DESC, (storeid IS NOT NULL) DESC,
+             (client_type IS NOT NULL) DESC, (discount_amount IS NOT NULL) DESC, date_placed DESC) = 1
+),
+items AS (
+  SELECT DISTINCT REGEXP_EXTRACT(job_number, r'^Lulu-(\d+)') AS n,
+         CAST(REGEXP_EXTRACT(store_name_1, r'^(\d{4})') AS INT64) AS item_store
+  FROM `myecomlulu.jackpot.instaleap_raw` WHERE store_name_1 IS NOT NULL
+)
+SELECT o.storeid, COUNT(*) AS orders_checked,
+       COUNTIF(o.storeid = i.item_store) AS agree,
+       ROUND(100 * COUNTIF(o.storeid = i.item_store) / COUNT(*), 1) AS agree_pct
+FROM o JOIN items AS i ON CAST(o.number AS STRING) = i.n
+WHERE LOWER(o.shipping_address_city_name) = 'jeddah'
+GROUP BY o.storeid ORDER BY orders_checked DESC;
+
+-- Supabase (SQL editor, not BigQuery): how many profiles are stale / when were they last written?
+--   select active, date_trunc('hour', synced_at) as last_written, count(*) from lulu_customer_profiles group by 1, 2 order by 2 desc;

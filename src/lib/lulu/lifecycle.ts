@@ -38,6 +38,9 @@ export interface LifecycleThresholds {
   lostRatio: number;
 }
 
+/** LOST_60 stops matching after this many days without an order. */
+export const DEFAULT_LOST_MAX_DAYS = 180;
+
 export const DEFAULT_LIFECYCLE: LifecycleThresholds = {
   atRiskDays: 15,
   dormantDays: 30,
@@ -159,7 +162,8 @@ export function matchingCampaigns(
         if (stage === "DORMANT") out.push({ campaign: c, reason: inactivityReason(gap, ratio, p) });
         break;
       case "LOST_60":
-        if (stage === "LOST") out.push({ campaign: c, reason: inactivityReason(gap, ratio, p) });
+        // Not worth (and risky for WhatsApp quality rating) to message people gone for ~a year.
+        if (stage === "LOST" && (gap === null || gap <= (c.params.lostMaxDays ?? DEFAULT_LOST_MAX_DAYS))) out.push({ campaign: c, reason: inactivityReason(gap, ratio, p) });
         break;
       case "VIP_PROTECTION":
         if (p.vipFlag && (stage === "AT_RISK" || stage === "DORMANT"))

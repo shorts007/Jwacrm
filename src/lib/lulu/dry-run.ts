@@ -1,4 +1,4 @@
-import { lifecycleStage, thresholdsFromCampaigns } from "./lifecycle";
+import { DEFAULT_LOST_MAX_DAYS, daysSince, lifecycleStage, thresholdsFromCampaigns } from "./lifecycle";
 import { decideNextBestAction } from "./next-best-action";
 import type {
   CampaignConfig,
@@ -70,6 +70,8 @@ export interface DryRunReport {
   asOf: string;
   profiles: number;
   suspects: number;
+  /** LOST customers beyond the LOST campaign's max-days window — deliberately left alone. */
+  beyondLostWindow: number;
   lifecycle: Record<LifecycleStage, number>;
   campaigns: CampaignDryRun[];
   customersWithAction: number;
@@ -101,6 +103,8 @@ export function runDryRun(
   const lifecycle: Record<LifecycleStage, number> = {
     NEW: 0, FIRST_ORDER: 0, ACTIVE: 0, AT_RISK: 0, DORMANT: 0, LOST: 0,
   };
+  const lostMax = sim.find((c) => c.type === "LOST_60")?.params.lostMaxDays ?? DEFAULT_LOST_MAX_DAYS;
+  let beyondLostWindow = 0;
   let suspects = 0;
   let withAction = 0;
   let withoutAction = 0;
@@ -111,7 +115,9 @@ export function runDryRun(
       continue;
     }
     const profile = profileFromRow(row);
-    lifecycle[lifecycleStage(profile, now, thresholds)]++;
+    const stage = lifecycleStage(profile, now, thresholds);
+    lifecycle[stage]++;
+    if (stage === "LOST" && (daysSince(profile.lastOrderDate, now) ?? 0) > lostMax) beyondLostWindow++;
 
     const result = decideNextBestAction({
       profile,
@@ -152,6 +158,7 @@ export function runDryRun(
     asOf: now.toISOString(),
     profiles: rows.length,
     suspects,
+    beyondLostWindow,
     lifecycle,
     campaigns: [...byCode.values()],
     customersWithAction: withAction,

@@ -41,7 +41,7 @@ export async function POST() {
           .eq('account_id', accountId)
           .order('started_at', { ascending: false })
           .limit(1),
-        db.from('lulu_customer_profiles').select('id', { count: 'exact', head: true }).eq('account_id', accountId),
+        db.from('lulu_customer_profiles').select('id', { count: 'exact', head: true }).eq('account_id', accountId).eq('active', true),
       ]);
 
     if (cErr) throw cErr;
@@ -65,6 +65,7 @@ export async function POST() {
             .from('lulu_customer_profiles')
             .select(COLUMNS)
             .eq('account_id', accountId)
+            .eq('active', true)
             .order('customer_id')
             .range(from, from + PAGE - 1);
         })
