@@ -83,10 +83,10 @@ export async function POST(request: Request) {
     // language / approval problem comes back as a clear message instead of #132001.
     const { data: synced, error: tErr } = await ctx.supabase
       .from('message_templates')
-      .select('name, language, status')
+      .select('name, language, status, body_text')
       .eq('account_id', ctx.accountId);
     if (tErr) throw tErr;
-    const rows = (synced ?? []) as { name: string; language: string | null; status: string | null }[];
+    const rows = (synced ?? []) as { name: string; language: string | null; status: string | null; body_text: string | null }[];
     const sameName = rows.filter((r) => r.name === template.name);
     const describe = (r: { name: string; language: string | null; status: string | null }) =>
       `${r.name} [${r.language ?? '?'}, ${r.status ?? '?'}]`;
@@ -121,11 +121,20 @@ export async function POST(request: Request) {
     const sendLanguage = chosen.language ?? wanted;
 
     const expiry = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
-    const params = buildTemplateParams(campaign.campaign_type, {
+    const wantedParams = buildTemplateParams(campaign.campaign_type, {
       name: sampleName,
       language: template.language,
       expiryDate: expiry,
     });
+    // Send exactly as many variables as the approved template declares (hello_world has none).
+    const varCount = new Set([...(chosen.body_text ?? '').matchAll(/\{\{(\d+)\}\}/g)].map((m) => m[1])).size;
+    if (varCount > wantedParams.length) {
+      return NextResponse.json(
+        { error: `Template "${template.name}" has ${varCount} variables but this campaign supplies ${wantedParams.length}. Pick a template that matches the campaign.` },
+        { status: 400 }
+      );
+    }
+    const params = wantedParams.slice(0, varCount);
 
     const admin = supabaseAdmin();
     const results: { phone: string; ok: boolean; error?: string; code?: string }[] = [];
