@@ -25,7 +25,7 @@ const row = (o: Partial<DryRunProfileRow>): DryRunProfileRow => ({
   customer_id: "c", mobile: "+966500000000", name: "N", language: "ar", birthday: null,
   last_order_date: "2026-09-01", total_orders: 1, total_sales: 100, median_interval_days: null,
   vip_flag: false, marketing_opt_in: true, active_complaint: false, suspect_reason: null,
-  preferred_store: null, ...o,
+  preferred_store: null, price_sensitivity: null, ...o,
 });
 
 describe("campaign defaults", () => {
@@ -85,6 +85,17 @@ describe("runDryRun", () => {
     expect(c("WINBACK_30").selected).toBe(1);
     expect(c("VIP_PROTECTION").selected).toBe(1);
     expect(c("VIP_PROTECTION").samples[0].customerId).toBe("c");
+  });
+  it("splits who would be messaged by price behaviour", () => {
+    const r2 = runDryRun(
+      [row({ customer_id: "x", price_sensitivity: "Full-price", last_order_date: "2026-09-02" }),
+       row({ customer_id: "y", price_sensitivity: "Offer-driven", last_order_date: "2026-09-02" }),
+       row({ customer_id: "z", last_order_date: "2026-09-02" })],
+      campaigns, DEFAULT_POLICY, NOW,
+    );
+    expect(r2.campaigns.find((x) => x.code === "SECOND_ORDER")!.selectedBySensitivity).toEqual({
+      "Full-price": 1, "Offer-driven": 1, "not enough data": 1,
+    });
   });
   it("VIP overdue customer is not double-counted: winback loses on priority", () => {
     expect(c("INACTIVE_15").blocked.lower_priority).toBe(1);

@@ -248,6 +248,12 @@ export default function CampaignsPage() {
                     <td className="px-4 py-2 font-medium tabular-nums">{fmt(c.selected)}</td>
                     <td className="px-4 py-2 text-xs text-muted-foreground">
                       {Object.entries(c.blocked).map(([r, n]) => `${fmt(n)} ${REASON_LABEL[r] ?? r}`).join(" · ") || "—"}
+                      {c.selected > 0 && (
+                        <div className="mt-1">
+                          Would be sent to:{" "}
+                          {Object.entries(c.selectedBySensitivity).map(([k, n]) => `${fmt(n)} ${k}`).join(" · ")}
+                        </div>
+                      )}
                       {c.samples.length > 0 && (
                         <div className="mt-2 space-y-0.5">
                           {c.samples.map((s) => (

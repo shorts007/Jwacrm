@@ -144,3 +144,32 @@ FROM `myecomlulu.jackpot.ksa_jackpot` AS o
 LEFT JOIN i ON CAST(o.number AS STRING) = i.n
 WHERE LOWER(o.status) = 'delivered'
 GROUP BY city ORDER BY orders DESC;
+
+-- 15) How well are the new columns filled? (by month)
+SELECT DATE_TRUNC(DATE(date_placed), MONTH) AS month, COUNT(*) AS orders,
+       ROUND(100 * COUNTIF(discount_amount IS NOT NULL) / COUNT(*), 1) AS pct_with_discount_value,
+       ROUND(100 * COUNTIF(discount_amount > 0) / COUNT(*), 1) AS pct_discounted,
+       ROUND(100 * COUNTIF(client_type IS NOT NULL) / COUNT(*), 1) AS pct_with_client_type,
+       ROUND(100 * COUNTIF(storeid IS NOT NULL) / COUNT(*), 1) AS pct_with_store
+FROM `myecomlulu.jackpot.ksa_jackpot` WHERE LOWER(status) = 'delivered'
+GROUP BY month ORDER BY month;
+
+-- 16) client_type values and stores (Jeddah)
+SELECT client_type, COUNT(*) AS orders, ROUND(AVG(amount), 1) AS avg_basket,
+       ROUND(100 * COUNTIF(discount_amount > 0) / NULLIF(COUNTIF(discount_amount IS NOT NULL), 0), 1) AS pct_discounted
+FROM `myecomlulu.jackpot.ksa_jackpot`
+WHERE LOWER(status) = 'delivered' AND LOWER(shipping_address_city_name) = 'jeddah'
+GROUP BY client_type ORDER BY orders DESC;
+
+SELECT storeid, COUNT(*) AS orders, COUNT(DISTINCT shipping_address_phone_number) AS customers
+FROM `myecomlulu.jackpot.ksa_jackpot`
+WHERE LOWER(status) = 'delivered' AND LOWER(shipping_address_city_name) = 'jeddah'
+GROUP BY storeid ORDER BY orders DESC;
+
+-- 17) Is `amount` net or gross of discount?  discount ÷ (amount + discount) should cluster on round
+--     promo percentages (10 %, 15 %, 20 %…) if amount is NET; discount ÷ amount if it is GROSS.
+SELECT ROUND(100 * discount_amount / (amount + discount_amount)) AS pct_if_net,
+       ROUND(100 * discount_amount / amount) AS pct_if_gross, COUNT(*) AS orders
+FROM `myecomlulu.jackpot.ksa_jackpot`
+WHERE discount_amount > 0 AND amount > 0 AND LOWER(status) = 'delivered'
+GROUP BY pct_if_net, pct_if_gross ORDER BY orders DESC LIMIT 15;

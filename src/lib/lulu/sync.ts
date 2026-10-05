@@ -5,6 +5,9 @@ import type { CustomerProfile, LifecycleStage } from "./types";
 /** Max customers per sync request (keeps well inside the 120 req/min key limit). */
 export const MAX_SYNC_BATCH = 500;
 
+export type PriceSensitivity = "Offer-driven" | "Mixed" | "Full-price";
+const SENSITIVITIES: PriceSensitivity[] = ["Offer-driven", "Mixed", "Full-price"];
+
 export interface SyncRowError {
   index: number;
   customer_id: string | null;
@@ -42,6 +45,13 @@ export interface ProfileRow {
   distinct_emails: number | null;
   suspect_reason: string | null;
   city: string | null;
+  preferred_store_id: number | null;
+  stores_used: number | null;
+  preferred_channel: string | null;
+  price_sensitivity: PriceSensitivity | null;
+  discount_order_share: number | null;
+  avg_discount_pct: number | null;
+  total_discount: number | null;
 }
 
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
@@ -61,6 +71,7 @@ const date = (v: unknown): string | null => {
   return m && !Number.isNaN(Date.parse(m[1])) ? m[1] : null;
 };
 const bool = (v: unknown, d: boolean) => (typeof v === "boolean" ? v : v === "true" || v === 1 ? true : v === "false" || v === 0 ? false : d);
+const clamp01 = (n: number | null) => (n === null ? null : Math.min(1, Math.max(0, n)));
 const small = (v: unknown) => {
   const n = num(v);
   return n === null ? null : Math.min(5, Math.max(1, Math.round(n)));
@@ -116,6 +127,13 @@ export function parseCustomer(raw: unknown, now: Date): ProfileRow | string {
     distinct_emails: num(r.distinct_emails) === null ? null : int(r.distinct_emails),
     suspect_reason: str(r.suspect_reason),
     city: str(r.city),
+    preferred_store_id: num(r.preferred_store_id) === null ? null : int(r.preferred_store_id),
+    stores_used: num(r.stores_used) === null ? null : int(r.stores_used),
+    preferred_channel: (str(r.preferred_channel) ?? "").toLowerCase() || null,
+    price_sensitivity: SENSITIVITIES.find((x) => x === str(r.price_sensitivity)) ?? null,
+    discount_order_share: clamp01(num(r.discount_order_share)),
+    avg_discount_pct: num(r.avg_discount_pct),
+    total_discount: num(r.total_discount),
   };
 
   const asProfile: CustomerProfile = {
