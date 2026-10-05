@@ -35,6 +35,16 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [result, setResult] = useState<SendResult | null>(null);
+  const [synced, setSynced] = useState<{ name: string; language: string | null; status: string | null }[]>([]);
+
+  // Templates already synced from Meta — offered as suggestions so names match exactly.
+  useEffect(() => {
+    void createClient()
+      .from("message_templates")
+      .select("name, language, status")
+      .order("name")
+      .then(({ data }) => setSynced((data ?? []) as typeof synced));
+  }, []);
 
   useEffect(() => {
     if (!c) return;
@@ -109,17 +119,27 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
         </label>
         <label className="space-y-1 text-xs text-muted-foreground">
           Arabic template name
-          <input className={input} value={ar} onChange={(e) => setAr(e.target.value)} dir="ltr" />
+          <input className={input} list="lulu-synced-templates" value={ar} onChange={(e) => setAr(e.target.value)} dir="ltr" />
         </label>
         <label className="space-y-1 text-xs text-muted-foreground">
           English template name
-          <input className={input} value={en} onChange={(e) => setEn(e.target.value)} dir="ltr" />
+          <input className={input} list="lulu-synced-templates" value={en} onChange={(e) => setEn(e.target.value)} dir="ltr" />
         </label>
         <label className="space-y-1 text-xs text-muted-foreground sm:col-span-2">
           Test phone numbers (comma-separated, with +country code)
           <input className={input} value={phones} onChange={(e) => setPhones(e.target.value)} placeholder="+966546182300" dir="ltr" />
         </label>
       </div>
+      <datalist id="lulu-synced-templates">
+        {synced.map((t) => (
+          <option key={`${t.name}-${t.language}`} value={t.name}>{`${t.language ?? "?"} · ${t.status ?? "?"}`}</option>
+        ))}
+      </datalist>
+      <p className="text-xs text-muted-foreground">
+        {synced.length === 0
+          ? "No templates synced from Meta yet — go to Settings → Templates → Sync from Meta."
+          : `${synced.length} templates synced from Meta (start typing a name to pick one; only Approved ones can be sent).`}
+      </p>
       <div className="flex flex-wrap items-center gap-2">
         <button type="button" onClick={() => void save()} disabled={busy} className="rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted disabled:opacity-50">
           Save
