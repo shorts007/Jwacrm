@@ -193,7 +193,16 @@ export default function CampaignsPage() {
         </div>
       )}
 
-      {campaigns.length > 0 && <TestPanel campaigns={campaigns} onSaved={() => void load()} />}
+      {campaigns.length > 0 ? (
+        <TestPanel campaigns={campaigns} onSaved={() => void load()} />
+      ) : (
+        !loading && (
+          <div className="rounded-xl border border-border bg-card p-4 text-sm text-muted-foreground">
+            <b className="text-foreground">Test mode</b> appears here once the campaigns exist — click “Create default campaigns”
+            above, then enter your template names and test number.
+          </div>
+        )
+      )}
 
       {dryError && (
         <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{dryError}</div>

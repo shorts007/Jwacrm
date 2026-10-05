@@ -79,6 +79,47 @@ export async function POST(request: Request) {
       );
     }
 
+    // Check against the templates synced from Meta BEFORE calling Meta, so a name /
+    // language / approval problem comes back as a clear message instead of #132001.
+    const { data: synced, error: tErr } = await ctx.supabase
+      .from('message_templates')
+      .select('name, language, status')
+      .eq('account_id', ctx.accountId);
+    if (tErr) throw tErr;
+    const rows = (synced ?? []) as { name: string; language: string | null; status: string | null }[];
+    const sameName = rows.filter((r) => r.name === template.name);
+    const describe = (r: { name: string; language: string | null; status: string | null }) =>
+      `${r.name} [${r.language ?? '?'}, ${r.status ?? '?'}]`;
+    if (sameName.length === 0) {
+      const mine = rows.filter((r) => r.name.startsWith('lulu_')).map(describe);
+      return NextResponse.json(
+        {
+          error:
+            `Template "${template.name}" is not in this WhatsApp account's synced templates. ` +
+            `Create/submit it under the SAME WhatsApp Business Account as the connected number, then run ` +
+            `Settings → Templates → "Sync from Meta". ` +
+            (mine.length ? `LuLu templates currently synced: ${mine.join(', ')}.` : `No lulu_ templates are synced yet.`),
+        },
+        { status: 400 }
+      );
+    }
+    const approved = sameName.filter((r) => (r.status ?? '').toUpperCase() === 'APPROVED');
+    if (approved.length === 0) {
+      return NextResponse.json(
+        {
+          error: `Template "${template.name}" exists but is not approved yet: ${sameName.map(describe).join(', ')}. Meta only delivers APPROVED templates (run "Sync from Meta" to refresh the status).`,
+        },
+        { status: 400 }
+      );
+    }
+    // Use the language code Meta actually has for this template (e.g. "ar" vs "ar_SA").
+    const wanted = TEMPLATE_LANGUAGE[template.language];
+    const chosen =
+      approved.find((r) => r.language === wanted) ??
+      approved.find((r) => (r.language ?? '').toLowerCase().startsWith(wanted)) ??
+      approved[0];
+    const sendLanguage = chosen.language ?? wanted;
+
     const expiry = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
     const params = buildTemplateParams(campaign.campaign_type, {
       name: sampleName,
@@ -102,7 +143,7 @@ export async function POST(request: Request) {
         is_test: true,
         recipient: phone,
         template_name: template.name,
-        template_language: TEMPLATE_LANGUAGE[template.language],
+        template_language: sendLanguage,
         template_params: params,
       };
       try {
@@ -111,7 +152,7 @@ export async function POST(request: Request) {
           conversationId: resolved.conversationId,
           messageType: 'template',
           templateName: template.name,
-          templateLanguage: TEMPLATE_LANGUAGE[template.language],
+          templateLanguage: sendLanguage,
           templateParams: params,
         });
         await admin.from('lulu_customer_next_actions').insert({
