@@ -374,11 +374,15 @@ prod_agg AS (
   FROM items_f
   WHERE d > DATE_SUB((SELECT d FROM items_as_of), INTERVAL 2 * (SELECT product_window_days FROM params) DAY)
   GROUP BY name
+),
+prod_top AS (
+  SELECT * FROM prod_agg
+  WHERE TRUE
   QUALIFY ROW_NUMBER() OVER (ORDER BY revenue DESC) <= (SELECT top_products FROM params)
 ),
 m_product AS (
   SELECT 'product' AS grp, 'last90' AS period, 'product' AS dim, a.name AS dim_value, x.metric, x.value
-  FROM prod_agg AS a,
+  FROM prod_top AS a,
   UNNEST([
     STRUCT('revenue' AS metric, CAST(a.revenue AS FLOAT64) AS value),
     STRUCT('revenue_prev' AS metric, CAST(a.revenue_prev AS FLOAT64) AS value),
