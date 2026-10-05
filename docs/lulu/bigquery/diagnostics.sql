@@ -295,5 +295,32 @@ FROM o JOIN items AS i ON CAST(o.number AS STRING) = i.n
 WHERE LOWER(o.shipping_address_city_name) = 'jeddah'
 GROUP BY o.storeid ORDER BY orders_checked DESC;
 
+-- 26) The orders where the order table and the picking system DISAGREE on store (after de-duplication).
+--     Diagnostic #25 showed 3810 agreeing only 76 % of the time: which store did the picking system record instead?
+WITH o AS (
+  SELECT * FROM `myecomlulu.jackpot.ksa_jackpot`
+  WHERE LOWER(status) = 'delivered' AND number IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY number
+    ORDER BY (storeid IS NOT NULL AND storeid != 3805) DESC, (storeid IS NOT NULL) DESC,
+             (client_type IS NOT NULL) DESC, (discount_amount IS NOT NULL) DESC, date_placed DESC) = 1
+),
+items AS (
+  SELECT DISTINCT REGEXP_EXTRACT(job_number, r'^Lulu-(\d+)') AS n,
+         CAST(REGEXP_EXTRACT(store_name_1, r'^(\d{4})') AS INT64) AS item_store
+  FROM `myecomlulu.jackpot.instaleap_raw` WHERE store_name_1 IS NOT NULL
+)
+SELECT o.storeid AS store_in_order_table, i.item_store AS store_in_picking_system,
+       COUNT(*) AS orders, MIN(DATE(o.date_placed)) AS first_day, MAX(DATE(o.date_placed)) AS last_day
+FROM o JOIN items AS i ON CAST(o.number AS STRING) = i.n
+WHERE o.storeid != i.item_store
+GROUP BY 1, 2 ORDER BY orders DESC LIMIT 20;
+
+-- 27) Is `store` maybe the store the order was PLACED against (not fulfilled by)? For the disagreeing orders, how many raw
+--     copies carry each store?  (Needs #26 first.) Raw copies of one sample order:
+--     SELECT number, storeid, client_type, shipping_address_city_name, date_placed FROM `myecomlulu.jackpot.ksa_jackpot`
+--     WHERE number IN (SELECT number FROM `myecomlulu.jackpot.ksa_jackpot` GROUP BY number HAVING COUNT(DISTINCT storeid) > 1 LIMIT 5)
+--     ORDER BY number, date_placed;
+
 -- Supabase (SQL editor, not BigQuery): how many profiles are stale / when were they last written?
 --   select active, date_trunc('hour', synced_at) as last_written, count(*) from lulu_customer_profiles group by 1, 2 order by 2 desc;

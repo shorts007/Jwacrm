@@ -22,8 +22,11 @@
 --      show it and exclude it from campaigns, counts and scoring.
 --   6. first_order_date is the first order in the data (history currently starts Jan/Feb 2025).
 --      Duplicate rows per order `number` are removed (see orders_raw).
---   7. Region: only customers whose latest order city is in `focus_cities` are returned (phase 1 =
---      Jeddah). RFM quintiles and the VIP cut-off are computed within that focus group.
+--   7. Region: phase 1 = Jeddah, defined by STORE (focus_storeids) because copies of the same order name the
+--      city inconsistently ('Jeddah' vs 'Al Bawadi', 'Al Safa'…). A customer is kept if their latest order was
+--      fulfilled by a Jeddah store. RFM quintiles and the VIP cut-off are computed within that focus group.
+--      Store of an order = picking-system store when known (Apr 2026+), else the order table's storeid
+--      (duplicate copies resolved by preferring a store that is not `unreliable_default_storeid`).
 --   8. Categories come out as 3-digit department CODES (e.g. '006'); a code → name table is needed
 --      to show names. Category exists only for orders that match the item table.
 --   9. Not available in these tables → not emitted: birthday, loyalty_id, marketing_opt_in,
@@ -33,10 +36,13 @@ WITH params AS (
   SELECT
     ['delivered'] AS valid_statuses,   -- add other "completed" status values if any
     -- Store ids that are a known-wrong DEFAULT on some appended rows. When copies of the same order
-    -- disagree, the copy with a different store wins (confirmed: 3810 Al Marwa is correct, not 3805).
+    -- disagree, the copy with a different store wins (business: 3810 Al Marwa, not 3805).
     3805 AS unreliable_default_storeid,
+    -- Where the picking system (instaleap_raw, Apr 2026+) says which store fulfilled the order, trust it
+    -- over the order table. Set FALSE to use only the order table's storeid.
+    TRUE AS prefer_picking_store,
     3    AS max_names_per_phone,       -- families share a phone; > 3 different first names = suspect
-    60   AS max_orders_per_phone,      -- with 2+ names: orders above this = suspect
+    45   AS max_orders_90d_per_phone,  -- with 2+ names: more orders than this in the last 90 days = suspect
     0.05 AS vip_top_share,             -- top 5% by lifetime sales ...
     3    AS vip_min_orders,            -- ... with at least 3 orders
     180  AS item_lookback_days,        -- window for preferred category
@@ -44,8 +50,13 @@ WITH params AS (
     0.70 AS offer_driven_share,        -- >= 70 % of (known) orders discounted  → 'Offer-driven'
     0.20 AS full_price_share,          -- <= 20 % of (known) orders discounted  → 'Full-price'
     3    AS min_orders_for_sensitivity,
-    -- PHASE 1 FOCUS: Jeddah. Customers are kept if their LATEST order's city is in this list
-    -- (case-insensitive). Use [] to include every city; add e.g. 'makkah','taif','madinah' later.
+    -- PHASE 1 FOCUS: Jeddah. City names are unreliable (copies of the same order say 'Jeddah' or a district
+    -- such as 'Al Bawadi', 'Al Safa'…), so the focus is defined by STORE: a customer is kept if their latest
+    -- order was fulfilled by one of these stores. Jeddah stores: 3805 Amir Fawaz, 3806 Kilo 7, 3808 Hamdaniya,
+    -- 3809 Madeena Road, 3810 Al Marwa, 3814 Baghdadiya, 3818 AzizMall. (3821 Russaifa is NOT included until confirmed.)
+    [3805, 3806, 3808, 3809, 3810, 3814, 3818] AS focus_storeids,
+    'Jeddah' AS focus_region_name,     -- shown as the customer's city when the store matches
+    -- Fallback used ONLY when focus_storeids is empty: latest order's city (case-insensitive). [] = everyone.
     ['jeddah'] AS focus_cities,
     'Asia/Riyadh' AS tz
 ),
@@ -91,16 +102,35 @@ phone_quality AS (
     NULLIF(ARRAY_TO_STRING([
       IF(COUNT(DISTINCT first_name) > (SELECT max_names_per_phone FROM params),
          CONCAT('many_names:', CAST(COUNT(DISTINCT first_name) AS STRING)), NULL),
-      -- a single named person with many orders is a heavy buyer / small business, NOT a fake
-      IF(COUNT(*) > (SELECT max_orders_per_phone FROM params) AND COUNT(DISTINCT first_name) >= 2,
-         CONCAT('many_orders:', CAST(COUNT(*) AS STRING)), NULL)
+      -- a single named person with many orders is a heavy buyer / small business, NOT a fake; and the rule looks
+      -- at the LAST 90 DAYS so a long-standing heavy household (e.g. 87 orders over 20 months) is not flagged
+      IF(COUNTIF(order_date >= DATE_SUB(CURRENT_DATE((SELECT tz FROM params)), INTERVAL 90 DAY)) > (SELECT max_orders_90d_per_phone FROM params)
+           AND COUNT(DISTINCT first_name) >= 2,
+         CONCAT('many_orders_90d:', CAST(COUNTIF(order_date >= DATE_SUB(CURRENT_DATE((SELECT tz FROM params)), INTERVAL 90 DAY)) AS STRING)), NULL)
     ], ','), '') AS suspect_reason
   FROM orders_raw
   GROUP BY phone
 ),
 
+-- Store that actually fulfilled each order, from the picking system (only Apr 2026+; most-used store if an order was split).
+picking_store AS (
+  SELECT order_number_str, ARRAY_AGG(item_store ORDER BY n DESC LIMIT 1)[OFFSET(0)] AS item_store
+  FROM (
+    SELECT REGEXP_EXTRACT(job_number, r'^Lulu-(\d+)') AS order_number_str,
+           CAST(REGEXP_EXTRACT(store_name_1, r'^(\d{4})') AS INT64) AS item_store,
+           COUNT(*) AS n
+    FROM `myecomlulu.jackpot.instaleap_raw`
+    WHERE REGEXP_CONTAINS(store_name_1, r'^\d{4}') AND job_number IS NOT NULL
+    GROUP BY order_number_str, item_store
+  )
+  GROUP BY order_number_str
+),
+
 orders AS (
-  SELECT * FROM orders_raw
+  SELECT r.* EXCEPT (storeid),
+         COALESCE(IF((SELECT prefer_picking_store FROM params), ps.item_store, NULL), r.storeid) AS storeid
+  FROM orders_raw AS r
+  LEFT JOIN picking_store AS ps ON CAST(r.order_number AS STRING) = ps.order_number_str
 ),
 
 -- Personal purchase cycle, measured between distinct order DAYS so two
@@ -136,6 +166,7 @@ cust AS (
     COUNTIF(order_date >= DATE_SUB(CURRENT_DATE((SELECT tz FROM params)), INTERVAL 90 DAY)) AS orders_90d,
     ARRAY_AGG(full_name IGNORE NULLS ORDER BY date_placed DESC LIMIT 1)[SAFE_OFFSET(0)] AS name,
     ARRAY_AGG(city IGNORE NULLS ORDER BY date_placed DESC LIMIT 1)[SAFE_OFFSET(0)] AS city,
+    ARRAY_AGG(storeid IGNORE NULLS ORDER BY date_placed DESC LIMIT 1)[SAFE_OFFSET(0)] AS latest_storeid,
     COUNT(DISTINCT storeid) AS stores_used,
     -- discount behaviour (only orders where discount_amount is recorded)
     COUNTIF(discount_amount IS NOT NULL) AS orders_with_discount_data,
@@ -226,8 +257,10 @@ scored AS (
     PERCENT_RANK() OVER (PARTITION BY q.suspect_reason IS NULL ORDER BY c.total_sales ASC) AS sales_pct
   FROM cust AS c
   JOIN phone_quality AS q ON q.phone = c.phone
-  WHERE ARRAY_LENGTH((SELECT focus_cities FROM params)) = 0
-     OR LOWER(c.city) IN UNNEST((SELECT focus_cities FROM params))
+  WHERE IF(ARRAY_LENGTH((SELECT focus_storeids FROM params)) > 0,
+           c.latest_storeid IN UNNEST((SELECT focus_storeids FROM params)),
+           ARRAY_LENGTH((SELECT focus_cities FROM params)) = 0
+             OR LOWER(c.city) IN UNNEST((SELECT focus_cities FROM params)))
 )
 
 SELECT
@@ -281,7 +314,9 @@ SELECT
   s.distinct_names,
   s.distinct_emails,
   s.suspect_reason,
-  s.city,
+  IF(ARRAY_LENGTH((SELECT focus_storeids FROM params)) > 0
+       AND s.latest_storeid IN UNNEST((SELECT focus_storeids FROM params)),
+     (SELECT focus_region_name FROM params), s.city) AS city,
   -- newest order in the source data; lets the app warn when the feed is stale
   FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%SZ', (SELECT MAX(date_placed) FROM orders_raw)) AS data_as_of
 FROM scored AS s
