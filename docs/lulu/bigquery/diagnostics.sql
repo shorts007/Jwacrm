@@ -273,5 +273,27 @@ WITH g AS (
 )
 SELECT cities, COUNT(*) AS orders FROM g WHERE n > 1 GROUP BY cities ORDER BY orders DESC LIMIT 20;
 
+-- 25) VERIFY the store rule: after de-duplication (3805 treated as the unreliable default), how often does each
+--     store agree with the store that actually picked the order? (Apr 2026 onwards, Jeddah). Expect ~100 %.
+WITH o AS (
+  SELECT * FROM `myecomlulu.jackpot.ksa_jackpot`
+  WHERE LOWER(status) = 'delivered' AND number IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY number
+    ORDER BY (storeid IS NOT NULL AND storeid != 3805) DESC, (storeid IS NOT NULL) DESC,
+             (client_type IS NOT NULL) DESC, (discount_amount IS NOT NULL) DESC, date_placed DESC) = 1
+),
+items AS (
+  SELECT DISTINCT REGEXP_EXTRACT(job_number, r'^Lulu-(\d+)') AS n,
+         CAST(REGEXP_EXTRACT(store_name_1, r'^(\d{4})') AS INT64) AS item_store
+  FROM `myecomlulu.jackpot.instaleap_raw` WHERE store_name_1 IS NOT NULL
+)
+SELECT o.storeid, COUNT(*) AS orders_checked,
+       COUNTIF(o.storeid = i.item_store) AS agree,
+       ROUND(100 * COUNTIF(o.storeid = i.item_store) / COUNT(*), 1) AS agree_pct
+FROM o JOIN items AS i ON CAST(o.number AS STRING) = i.n
+WHERE LOWER(o.shipping_address_city_name) = 'jeddah'
+GROUP BY o.storeid ORDER BY orders_checked DESC;
+
 -- Supabase (SQL editor, not BigQuery): how many profiles are stale / when were they last written?
 --   select active, date_trunc('hour', synced_at) as last_written, count(*) from lulu_customer_profiles group by 1, 2 order by 2 desc;

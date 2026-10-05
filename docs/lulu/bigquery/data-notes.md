@@ -29,3 +29,5 @@ Decision (Oct 2026): phase 1 focuses on the **western province** — Riyadh/East
 holds 26,726 orders and 3805 (Amir Fawaz) 20,274, versus 6,469 / 40,500 when duplicates were counted. All other stores are unchanged.
 Spend, order counts, recency and frequency are NOT affected (amount and phone never conflict); store-based and city-based
 features are, until diagnostics #22-#24 show which copy is right.
+
+Confirmed by the business: when copies of an order disagree, **3810 (Al Marwa) is the correct store** and 3805 is a wrong default on some appended rows. `customer_master.sql` now prefers a copy whose store is not `unreliable_default_storeid` (3805). Verify with diagnostic #25.

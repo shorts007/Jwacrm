@@ -32,6 +32,9 @@
 WITH params AS (
   SELECT
     ['delivered'] AS valid_statuses,   -- add other "completed" status values if any
+    -- Store ids that are a known-wrong DEFAULT on some appended rows. When copies of the same order
+    -- disagree, the copy with a different store wins (confirmed: 3810 Al Marwa is correct, not 3805).
+    3805 AS unreliable_default_storeid,
     3    AS max_names_per_phone,       -- families share a phone; > 3 different first names = suspect
     60   AS max_orders_per_phone,      -- with 2+ names: orders above this = suspect
     0.05 AS vip_top_share,             -- top 5% by lifetime sales ...
@@ -68,11 +71,13 @@ orders_raw AS (
     AND o.number IS NOT NULL
     AND o.date_placed IS NOT NULL
     AND LOWER(o.status) IN UNNEST(p.valid_statuses)
-  -- One row per order number. The table contains duplicates (old data was appended): keep the copy
-  -- that has the new columns filled in, then the latest timestamp.
+  -- One row per order number. The table contains duplicates (old data was appended) whose copies can
+  -- disagree on store: prefer a copy whose store is NOT the known-wrong default, then the copy with the
+  -- new columns filled in, then the latest timestamp.
   QUALIFY ROW_NUMBER() OVER (
     PARTITION BY o.number
-    ORDER BY (o.storeid IS NOT NULL) DESC, (o.client_type IS NOT NULL) DESC,
+    ORDER BY (o.storeid IS NOT NULL AND o.storeid != p.unreliable_default_storeid) DESC,
+             (o.storeid IS NOT NULL) DESC, (o.client_type IS NOT NULL) DESC,
              (o.discount_amount IS NOT NULL) DESC, o.date_placed DESC
   ) = 1
 ),
