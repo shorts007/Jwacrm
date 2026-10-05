@@ -200,3 +200,35 @@ SELECT CASE
 FROM `myecomlulu.jackpot.lulu_customer_master`
 WHERE suspect_reason IS NULL
 GROUP BY last_order_ago ORDER BY MIN(DATE_DIFF(CURRENT_DATE('Asia/Riyadh'), DATE(last_order_date), DAY));
+
+-- 20) Store distribution of Jeddah customers, computed EXACTLY like the customer master (deduped).
+--     Compare with the "By store" table on /engagement.
+WITH o AS (
+  SELECT * FROM `myecomlulu.jackpot.ksa_jackpot`
+  WHERE LOWER(status) = 'delivered' AND number IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY number
+    ORDER BY (storeid IS NOT NULL) DESC, (client_type IS NOT NULL) DESC, (discount_amount IS NOT NULL) DESC, date_placed DESC) = 1
+)
+SELECT storeid, COUNT(*) AS orders, COUNT(DISTINCT shipping_address_phone_number) AS customers,
+       MIN(DATE(date_placed)) AS first_day, MAX(DATE(date_placed)) AS last_day
+FROM o WHERE LOWER(shipping_address_city_name) = 'jeddah'
+GROUP BY storeid ORDER BY orders DESC;
+
+-- 21) Do duplicate copies of the same order DISAGREE? (a wrong default storeid on appended rows would show here)
+SELECT
+  COUNTIF(stores > 1)  AS orders_with_conflicting_store,
+  COUNTIF(amounts > 1) AS orders_with_conflicting_amount,
+  COUNTIF(cities > 1)  AS orders_with_conflicting_city,
+  COUNTIF(phones > 1)  AS orders_with_conflicting_phone,
+  COUNT(*)             AS duplicated_orders
+FROM (
+  SELECT number, COUNT(DISTINCT storeid) AS stores, COUNT(DISTINCT amount) AS amounts,
+         COUNT(DISTINCT shipping_address_city_name) AS cities, COUNT(DISTINCT shipping_address_phone_number) AS phones
+  FROM `myecomlulu.jackpot.ksa_jackpot`
+  WHERE number IS NOT NULL
+  GROUP BY number HAVING COUNT(*) > 1
+);
+
+-- Supabase (SQL editor, not BigQuery): how many profiles are stale / when were they last written?
+--   select active, date_trunc('hour', synced_at) as last_written, count(*) from lulu_customer_profiles group by 1, 2 order by 2 desc;

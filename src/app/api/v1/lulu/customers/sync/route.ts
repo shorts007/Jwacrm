@@ -20,6 +20,8 @@
 //     win over a stale warehouse snapshot). Re-opt-in is a manual action.
 //   - lifecycle_stage is computed here by the engine unless overridden.
 //   - Idempotent: re-sending the same batch is safe.
+//   - `run_id` (optional): tags every profile written by one full run so
+//     POST /sync/finish can retire customers that dropped out of the feed.
 // ============================================================
 
 import { requireApiKey } from '@/lib/auth/api-context';
@@ -47,6 +49,7 @@ export async function POST(request: Request) {
       customers?: unknown;
       create_contacts?: unknown;
       data_as_of?: unknown;
+      run_id?: unknown;
     } | null;
     if (!body || !Array.isArray(body.customers)) {
       return fail('bad_request', "Body must be { customers: [...] }", 400);
@@ -62,6 +65,8 @@ export async function POST(request: Request) {
       );
     }
     const createContacts = body.create_contacts === true;
+    const runId =
+      typeof body.run_id === 'string' && body.run_id.trim() ? body.run_id.trim().slice(0, 64) : null;
     const now = new Date();
 
     // 1. Validate + derive rows (last occurrence of a customer_id wins).
@@ -167,6 +172,8 @@ export async function POST(request: Request) {
       account_id: accountId,
       contact_id: contactByDigits.get(digitsOf(r.mobile)) ?? null,
       synced_at: syncedAt,
+      active: true,
+      sync_run: runId,
     }));
     const { error: upsertError } = await db
       .from('lulu_customer_profiles')

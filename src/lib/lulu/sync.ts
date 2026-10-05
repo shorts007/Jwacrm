@@ -176,3 +176,23 @@ export function extractDataAsOf(bodyValue: unknown, rawRows: unknown[]): string 
   }
   return times.length ? new Date(Math.max(...times)).toISOString() : null;
 }
+
+/**
+ * Safety check before retiring profiles that are missing from a sync run.
+ * Refuses when the run kept fewer than half of the currently active profiles
+ * (a partial or broken run must never wipe the customer base) unless forced.
+ */
+export function pruneVerdict(
+  keptInRun: number,
+  activeBefore: number,
+  force = false,
+): { ok: true } | { ok: false; reason: string } {
+  if (keptInRun <= 0) return { ok: false, reason: "No profiles were written by this run id." };
+  if (!force && activeBefore > 0 && keptInRun < activeBefore * 0.5) {
+    return {
+      ok: false,
+      reason: `This run kept only ${keptInRun} of ${activeBefore} active profiles (under 50%). Looks like a partial run — refusing to retire the rest. Pass force: true if this is intended.`,
+    };
+  }
+  return { ok: true };
+}

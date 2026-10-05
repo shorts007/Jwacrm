@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractDataAsOf, normalizeMobile, parseCustomer } from "./index";
+import { extractDataAsOf, normalizeMobile, parseCustomer, pruneVerdict } from "./index";
 
 const NOW = new Date("2026-09-24T12:00:00Z");
 
@@ -81,5 +81,14 @@ describe("parseCustomer — insight fields", () => {
   it("ignores unknown sensitivity labels and clamps the share", () => {
     const r = parseCustomer({ customer_id: "1", mobile: "966592266779", price_sensitivity: "cheap", discount_order_share: 3 }, NOW);
     expect(r).toMatchObject({ price_sensitivity: null, discount_order_share: 1, preferred_channel: null });
+  });
+});
+
+describe("pruneVerdict", () => {
+  it("allows a normal run and refuses empty or partial ones", () => {
+    expect(pruneVerdict(24_000, 25_000)).toEqual({ ok: true });
+    expect(pruneVerdict(0, 25_000)).toMatchObject({ ok: false });
+    expect(pruneVerdict(5_000, 25_000)).toMatchObject({ ok: false });
+    expect(pruneVerdict(5_000, 25_000, true)).toEqual({ ok: true });
   });
 });

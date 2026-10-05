@@ -69,6 +69,7 @@ export default function EngagementPage() {
         .from("lulu_customer_profiles")
         .select("id", { count: "exact", head: true })
         .eq("account_id", accountId)
+        .eq("active", true)
         .is("suspect_reason", null);
 
     try {
@@ -95,6 +96,7 @@ export default function EngagementPage() {
             .from("lulu_customer_profiles")
             .select("id", { count: "exact", head: true })
             .eq("account_id", accountId)
+            .eq("active", true)
             .not("suspect_reason", "is", null),
           supabase
             .from("lulu_customer_profiles")
@@ -102,6 +104,7 @@ export default function EngagementPage() {
               "customer_id, mobile, total_orders, total_sales, distinct_names, distinct_emails, suspect_reason, last_order_date",
             )
             .eq("account_id", accountId)
+            .eq("active", true)
             .not("suspect_reason", "is", null)
             .order("total_orders", { ascending: false })
             .limit(25),
