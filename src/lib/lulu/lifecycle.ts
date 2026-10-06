@@ -171,7 +171,10 @@ export function matchingCampaigns(
         break;
       case "REPLENISHMENT": {
         if (!itemDataCovers(p)) break;
-        if (gap !== null && gap < (c.params.minDaysSinceOrder ?? 2)) break;
+        // Remind just before the customer's NEXT shop, not right after the last one.
+        const rhythm = p.totalOrders >= MIN_ORDERS_FOR_CYCLE && p.medianIntervalDays ? p.medianIntervalDays : 0;
+        const wait = Math.max(c.params.minDaysSinceOrder ?? 2, (c.params.cycleRatio ?? 0.7) * rhythm);
+        if (gap !== null && gap < wait) break;
         const due = dueItems(p.usualItems, now, c.params.dueRatio, c.params.overdueRatio).slice(0, c.params.maxItems ?? 3);
         if (due.length) {
           const first = due[0];

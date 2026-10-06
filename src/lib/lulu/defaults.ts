@@ -24,7 +24,7 @@ export const DEFAULT_CAMPAIGN_ROWS = [
   { campaign_code: "SECOND_ORDER", name: "Second Order", campaign_type: "SECOND_ORDER", rule_params: { secondOrderAfterDays: 7 }, priority: 40 },
   { campaign_code: "VIP_PROTECTION", name: "VIP Protection", campaign_type: "VIP_PROTECTION", rule_params: {}, priority: 10 },
   // V2 personalisation (item history from picking data)
-  { campaign_code: "REPLENISHMENT", name: "Replenishment", campaign_type: "REPLENISHMENT", rule_params: { dueRatio: 0.9, overdueRatio: 2, maxItems: 3 }, priority: 35 },
+  { campaign_code: "REPLENISHMENT", name: "Replenishment", campaign_type: "REPLENISHMENT", rule_params: { dueRatio: 0.9, overdueRatio: 2, maxItems: 3, minDaysSinceOrder: 2, cycleRatio: 0.7 }, priority: 35 },
   { campaign_code: "BUY_AGAIN", name: "Buy Again", campaign_type: "BUY_AGAIN", rule_params: { stages: ["AT_RISK"], minItems: 2 }, priority: 45 },
 ] as const;
 

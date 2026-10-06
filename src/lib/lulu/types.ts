@@ -91,8 +91,11 @@ export interface CampaignConfig {
     /** BUY_AGAIN: lifecycle stages to target (default AT_RISK) and minimum usual items. */
     stages?: LifecycleStage[];
     minItems?: number; // default 2
-    /** REPLENISHMENT: wait at least N days after any order (default 2). */
+    /** REPLENISHMENT: wait at least N days after any order (default 2) … */
     minDaysSinceOrder?: number;
+    /** … and, for customers with a known shopping rhythm, until cycleRatio × their usual gap between orders
+     *  (default 0.7 → a 9-day shopper is reminded from day ~6, just before their next shop). */
+    cycleRatio?: number;
   };
 }
 
