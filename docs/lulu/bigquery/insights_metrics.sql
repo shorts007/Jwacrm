@@ -367,11 +367,20 @@ items_f AS (
   WHERE it.item_store IN UNNEST((SELECT focus_storeids FROM params))
 ),
 items_as_of AS (SELECT MAX(d) AS d FROM items_f),
+-- Picking data starts Apr 2026, so the "previous 90 days" window can be partly empty: scale it to a full window.
+prev_cover AS (
+  SELECT GREATEST(1, DATE_DIFF(
+           DATE_SUB((SELECT d FROM items_as_of), INTERVAL (SELECT product_window_days FROM params) DAY),
+           GREATEST(MIN(d), DATE_SUB((SELECT d FROM items_as_of), INTERVAL 2 * (SELECT product_window_days FROM params) DAY)),
+           DAY)) AS days
+  FROM items_f
+),
 prod_agg AS (
   SELECT
     name,
     SUM(IF(d > DATE_SUB((SELECT d FROM items_as_of), INTERVAL (SELECT product_window_days FROM params) DAY), sales, 0)) AS revenue,
-    SUM(IF(d <= DATE_SUB((SELECT d FROM items_as_of), INTERVAL (SELECT product_window_days FROM params) DAY), sales, 0)) AS revenue_prev,
+    SUM(IF(d <= DATE_SUB((SELECT d FROM items_as_of), INTERVAL (SELECT product_window_days FROM params) DAY), sales, 0))
+      * (SELECT product_window_days FROM params) / (SELECT days FROM prev_cover) AS revenue_prev,   -- scaled to a full window
     SUM(IF(d > DATE_SUB((SELECT d FROM items_as_of), INTERVAL (SELECT product_window_days FROM params) DAY), units, 0)) AS units,
     COUNT(DISTINCT IF(d > DATE_SUB((SELECT d FROM items_as_of), INTERVAL (SELECT product_window_days FROM params) DAY), order_number_str, NULL)) AS orders,
     COUNT(DISTINCT IF(d > DATE_SUB((SELECT d FROM items_as_of), INTERVAL (SELECT product_window_days FROM params) DAY), phone, NULL)) AS customers

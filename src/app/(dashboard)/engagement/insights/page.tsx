@@ -241,7 +241,7 @@ export default function CustomerInsightsPage() {
 
           <Section
             title="Products driving sales"
-            hint="Top products in the last 90 days of picking data, compared with the 90 days before. 'Customers' shows everyday drivers; 'Revenue' is pulled up by one-off electronics."
+            hint="Top products in the last 90 days of picking data vs the 90 days before (scaled to a full 90 days where picking data was shorter). 'Customers' shows everyday drivers; 'Revenue' is pulled up by one-off electronics."
             right={
               <div className="flex gap-1 rounded-lg bg-muted/60 p-1">
                 {(["customers", "revenue"] as const).map((k) => (
