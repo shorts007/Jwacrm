@@ -10,6 +10,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { TestPanel } from "./campaigns-test-panel";
 import { LuluTemplatesPanel } from "./lulu-templates-panel";
 import { OptOutPanel } from "./opt-out-panel";
+import { LivePanel } from "./live-panel";
 import { DEFAULT_CAMPAIGN_ROWS, PRIORITY_CLASS_BY_TYPE, type CampaignType, type DryRunReport } from "@/lib/lulu";
 
 interface CampaignRow {
@@ -23,6 +24,7 @@ interface CampaignRow {
   active: boolean;
   template_name_ar: string | null;
   template_name_en: string | null;
+  template_name_bilingual: string | null;
   test_phones: string[] | null;
 }
 
@@ -53,7 +55,7 @@ export default function CampaignsPage() {
     setLoading(true);
     const { data, error: err } = await createClient()
       .from("lulu_campaigns")
-      .select("id, campaign_code, name, campaign_type, rule_params, status, mode, active, template_name_ar, template_name_en, test_phones")
+      .select("id, campaign_code, name, campaign_type, rule_params, status, mode, active, template_name_ar, template_name_en, template_name_bilingual, test_phones")
       .eq("account_id", accountId)
       .order("priority");
     if (err) setError(err.message);
@@ -208,6 +210,10 @@ export default function CampaignsPage() {
             above, then enter your template names and test number.
           </div>
         )
+      )}
+
+      {campaigns.length > 0 && accountId && (
+        <LivePanel accountId={accountId} campaigns={campaigns} onChanged={() => void load()} />
       )}
 
       {dryError && (

@@ -15,6 +15,7 @@ export interface TestCampaign {
   campaign_type: CampaignType;
   template_name_ar?: string | null;
   template_name_en?: string | null;
+  template_name_bilingual?: string | null;
   test_phones?: string[] | null;
 }
 
@@ -30,6 +31,7 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
   const c = campaigns.find((x) => x.id === id) ?? campaigns[0];
   const [ar, setAr] = useState("");
   const [en, setEn] = useState("");
+  const [bi, setBi] = useState("");
   const [phones, setPhones] = useState("");
   const [name, setName] = useState("Test");
   const [busy, setBusy] = useState(false);
@@ -51,10 +53,11 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
     const d = DEFAULT_TEMPLATE_NAMES[c.campaign_type];
     setAr(c.template_name_ar ?? d?.ar ?? "");
     setEn(c.template_name_en ?? d?.en ?? "");
+    setBi(c.template_name_bilingual ?? d?.bi ?? "");
     setPhones((c.test_phones ?? []).join(", "));
     setResult(null);
     setMsg(null);
-  }, [c?.id, c?.template_name_ar, c?.template_name_en, c?.test_phones]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [c?.id, c?.template_name_ar, c?.template_name_en, c?.template_name_bilingual, c?.test_phones]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!c) return null;
 
@@ -66,14 +69,19 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
     setBusy(true);
     const { error } = await createClient()
       .from("lulu_campaigns")
-      .update({ template_name_ar: ar.trim() || null, template_name_en: en.trim() || null, test_phones: parsedPhones })
+      .update({
+        template_name_ar: ar.trim() || null,
+        template_name_en: en.trim() || null,
+        template_name_bilingual: bi.trim() || null,
+        test_phones: parsedPhones,
+      })
       .eq("id", c.id);
     setBusy(false);
     setMsg(error ? error.message : "Saved.");
     if (!error) onSaved();
   };
 
-  const send = async (language: "ar" | "en") => {
+  const send = async (language: "ar" | "en" | "bi") => {
     setBusy(true);
     setMsg(null);
     setResult(null);
@@ -125,7 +133,11 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
           English template name
           <input className={input} list="lulu-synced-templates" value={en} onChange={(e) => setEn(e.target.value)} dir="ltr" />
         </label>
-        <label className="space-y-1 text-xs text-muted-foreground sm:col-span-2">
+        <label className="space-y-1 text-xs text-muted-foreground">
+          Bilingual template name (AR + EN, with language buttons)
+          <input className={input} list="lulu-synced-templates" value={bi} onChange={(e) => setBi(e.target.value)} dir="ltr" />
+        </label>
+        <label className="space-y-1 text-xs text-muted-foreground">
           Test phone numbers (comma-separated, with +country code)
           <input className={input} value={phones} onChange={(e) => setPhones(e.target.value)} placeholder="+966546182300" dir="ltr" />
         </label>
@@ -144,11 +156,11 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
         <button type="button" onClick={() => void save()} disabled={busy} className="rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted disabled:opacity-50">
           Save
         </button>
-        {(["ar", "en"] as const).map((l) => (
+        {(["bi", "ar", "en"] as const).map((l) => (
           <button key={l} type="button" onClick={() => void send(l)} disabled={busy || parsedPhones.length === 0}
             className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            Send test ({l === "ar" ? "Arabic" : "English"})
+            Send test ({l === "bi" ? "Both languages" : l === "ar" ? "Arabic" : "English"})
           </button>
         ))}
         <span className="text-xs text-muted-foreground">Save first if you changed the fields.</span>

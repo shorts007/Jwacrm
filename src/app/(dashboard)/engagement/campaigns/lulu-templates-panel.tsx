@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, RefreshCw, Upload } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { LULU_TEMPLATE_DEFS } from "@/lib/lulu";
+import { ALL_LULU_TEMPLATE_DEFS as LULU_TEMPLATE_DEFS } from "@/lib/lulu";
 
 interface Synced {
   name: string;
@@ -71,7 +71,7 @@ export function LuluTemplatesPanel({ onChanged }: { onChanged?: () => void }) {
         <div>
           <h2 className="text-sm font-semibold text-foreground">Step 1 — LuLu WhatsApp templates</h2>
           <p className="text-xs text-muted-foreground">
-            Creates the {LULU_TEMPLATE_DEFS.length} English/Arabic marketing templates in the WhatsApp account this app is
+            Creates the {LULU_TEMPLATE_DEFS.length} marketing templates (English, Arabic and bilingual with العربية / English buttons) in the WhatsApp account this app is
             connected to and sends them to Meta for approval. Approval can take minutes to a day.
           </p>
         </div>

@@ -24,6 +24,7 @@ import {
 import {
   TEMPLATE_LANGUAGE,
   asMessageLanguage,
+  buildBilingualParams,
   buildTemplateParams,
   pickTemplate,
   type CampaignType,
@@ -35,6 +36,7 @@ interface CampaignRow {
   campaign_type: CampaignType;
   template_name_ar: string | null;
   template_name_en: string | null;
+  template_name_bilingual: string | null;
   test_phones: string[] | null;
 }
 
@@ -49,12 +51,14 @@ export async function POST(request: Request) {
     if (!body || typeof body.campaign_id !== 'string') {
       return NextResponse.json({ error: 'campaign_id is required' }, { status: 400 });
     }
+    // 'bi' = the bilingual AR+EN template with العربية / English buttons
+    const bilingual = body.language === 'bi';
     const language = asMessageLanguage(typeof body.language === 'string' ? body.language : 'ar');
     const sampleName = typeof body.name === 'string' && body.name.trim() ? body.name.trim() : 'Test';
 
     const { data: campaign, error } = await ctx.supabase
       .from('lulu_campaigns')
-      .select('id, campaign_code, campaign_type, template_name_ar, template_name_en, test_phones')
+      .select('id, campaign_code, campaign_type, template_name_ar, template_name_en, template_name_bilingual, test_phones')
       .eq('id', body.campaign_id)
       .eq('account_id', ctx.accountId)
       .maybeSingle<CampaignRow>();
@@ -68,10 +72,11 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    const template = pickTemplate(
-      { ar: campaign.template_name_ar, en: campaign.template_name_en },
-      language
-    );
+    const template = bilingual
+      ? campaign.template_name_bilingual
+        ? { name: campaign.template_name_bilingual, language: 'ar' as const }
+        : null
+      : pickTemplate({ ar: campaign.template_name_ar, en: campaign.template_name_en }, language);
     if (!template) {
       return NextResponse.json(
         { error: 'Set the template name for this campaign first (it must be an APPROVED template in Meta).' },
@@ -121,11 +126,13 @@ export async function POST(request: Request) {
     const sendLanguage = chosen.language ?? wanted;
 
     const expiry = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
-    const wantedParams = buildTemplateParams(campaign.campaign_type, {
-      name: sampleName,
-      language: template.language,
-      expiryDate: expiry,
-    });
+    const wantedParams = bilingual
+      ? buildBilingualParams(campaign.campaign_type, { name: sampleName, expiryDate: expiry })
+      : buildTemplateParams(campaign.campaign_type, {
+          name: sampleName,
+          language: template.language,
+          expiryDate: expiry,
+        });
     // Send exactly as many variables as the approved template declares (hello_world has none).
     const varCount = new Set([...(chosen.body_text ?? '').matchAll(/\{\{(\d+)\}\}/g)].map((m) => m[1])).size;
     if (varCount > wantedParams.length) {

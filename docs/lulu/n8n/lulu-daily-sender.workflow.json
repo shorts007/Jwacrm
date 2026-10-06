@@ -1,0 +1,342 @@
+{
+  "name": "LuLu - daily campaign sender",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## LuLu daily campaign sender\nSends today's LIVE campaign messages ONE at a time with growing gaps: 60 s, 61 s, 62 s \u2026 (set in the app: Campaigns \u2192 Step 3).\n\n**Setup**\n1. Supabase: migrations up to 053.\n2. WACRM: API key with scopes `messages:send` (and `contacts:write` if you reuse it for the sync).\n3. n8n: *Header Auth* credential `Authorization: Bearer <key>` on all three HTTP nodes.\n4. In the app: campaign Live switch **On** + **Make LIVE**.\n\n**Safety (enforced by the app, not n8n):** daily cap, no sends 22:00-09:00 Riyadh, STOP list, data < 36 h old, auto-pause on Meta rate-limit/block errors or 5 failures in a row. Calling send-next too early is refused.\n\nRun **Manual** once and watch Campaigns \u2192 Step 3 \u2192 Today. Activate the workflow for the daily 17:00 run (100 msgs \u2248 3 h).",
+        "height": 420,
+        "width": 560,
+        "color": 4
+      },
+      "name": "Setup notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -160,
+        -300
+      ],
+      "id": "lulu-sender-0"
+    },
+    {
+      "parameters": {},
+      "name": "Manual run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        160
+      ],
+      "id": "lulu-sender-1"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 17
+            }
+          ]
+        }
+      },
+      "name": "Daily 17:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        340
+      ],
+      "id": "lulu-sender-2"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://jwacrm.vercel.app/api/v1/lulu/campaigns/prepare",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({}) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "name": "Prepare today's queue",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        250
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "id": "lulu-sender-3"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "q",
+              "leftValue": "={{ $json.queued }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "name": "Anything queued?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        520,
+        250
+      ],
+      "id": "lulu-sender-4"
+    },
+    {
+      "parameters": {
+        "amount": "={{ $json.first_wait_seconds || 60 }}",
+        "unit": "seconds"
+      },
+      "name": "Wait first gap",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        780,
+        200
+      ],
+      "webhookId": "lulu-sender-wait-first",
+      "id": "lulu-sender-5"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://jwacrm.vercel.app/api/v1/lulu/campaigns/send-next",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({}) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "name": "Send next message",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1040,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "id": "lulu-sender-6"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "d",
+              "leftValue": "={{ $json.done }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "e",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "name": "Finished?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        200
+      ],
+      "id": "lulu-sender-7"
+    },
+    {
+      "parameters": {
+        "amount": "={{ $json.next_wait_seconds || 60 }}",
+        "unit": "seconds"
+      },
+      "name": "Wait next gap",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1300,
+        420
+      ],
+      "webhookId": "lulu-sender-wait-next",
+      "id": "lulu-sender-8"
+    },
+    {
+      "parameters": {},
+      "name": "Done for today",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1560,
+        180
+      ],
+      "id": "lulu-sender-9"
+    },
+    {
+      "parameters": {},
+      "name": "Nothing to send",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        780,
+        400
+      ],
+      "id": "lulu-sender-10"
+    }
+  ],
+  "connections": {
+    "Manual run": {
+      "main": [
+        [
+          {
+            "node": "Prepare today's queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Daily 17:00": {
+      "main": [
+        [
+          {
+            "node": "Prepare today's queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare today's queue": {
+      "main": [
+        [
+          {
+            "node": "Anything queued?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anything queued?": {
+      "main": [
+        [
+          {
+            "node": "Wait first gap",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Nothing to send",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait first gap": {
+      "main": [
+        [
+          {
+            "node": "Send next message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send next message": {
+      "main": [
+        [
+          {
+            "node": "Finished?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Finished?": {
+      "main": [
+        [
+          {
+            "node": "Done for today",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Wait next gap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait next gap": {
+      "main": [
+        [
+          {
+            "node": "Send next message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Riyadh"
+  },
+  "active": false,
+  "pinData": {}
+}

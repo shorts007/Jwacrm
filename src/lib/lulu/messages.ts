@@ -6,12 +6,12 @@ export type MessageLanguage = "ar" | "en";
 export const TEMPLATE_LANGUAGE: Record<MessageLanguage, string> = { ar: "ar", en: "en" };
 
 /** Default (suggested) Meta template names per campaign type — see docs/lulu/templates.md. */
-export const DEFAULT_TEMPLATE_NAMES: Partial<Record<CampaignType, { ar: string; en: string }>> = {
-  INACTIVE_15: { ar: "lulu_inactive_15_ar", en: "lulu_inactive_15_en" },
-  WINBACK_30: { ar: "lulu_winback_30_ar", en: "lulu_winback_30_en" },
-  LOST_60: { ar: "lulu_lost_60_ar", en: "lulu_lost_60_en" },
-  SECOND_ORDER: { ar: "lulu_second_order_ar", en: "lulu_second_order_en" },
-  VIP_PROTECTION: { ar: "lulu_vip_care_ar", en: "lulu_vip_care_en" },
+export const DEFAULT_TEMPLATE_NAMES: Partial<Record<CampaignType, { ar: string; en: string; bi: string }>> = {
+  INACTIVE_15: { ar: "lulu_inactive_15_ar", en: "lulu_inactive_15_en", bi: "lulu_inactive_15_bi" },
+  WINBACK_30: { ar: "lulu_winback_30_ar", en: "lulu_winback_30_en", bi: "lulu_winback_30_bi" },
+  LOST_60: { ar: "lulu_lost_60_ar", en: "lulu_lost_60_en", bi: "lulu_lost_60_bi" },
+  SECOND_ORDER: { ar: "lulu_second_order_ar", en: "lulu_second_order_en", bi: "lulu_second_order_bi" },
+  VIP_PROTECTION: { ar: "lulu_vip_care_ar", en: "lulu_vip_care_en", bi: "lulu_vip_care_bi" },
 };
 
 /** Number of positional body variables each campaign's template takes: {{1}}=name, {{2}}=offer, {{3}}=expiry. */
@@ -75,3 +75,33 @@ export function pickTemplate(
 
 export const asMessageLanguage = (l: string | null | undefined): MessageLanguage =>
   l && l.toLowerCase().startsWith("en") ? "en" : "ar";
+
+/**
+ * Params for a BILINGUAL template: the Arabic block's variables first, then the
+ * English block's (e.g. {{1}} name-ar … {{4}} name-en), each formatted for its language.
+ */
+export function buildBilingualParams(type: CampaignType, ctx: Omit<MessageContext, "language">): string[] {
+  return [...buildTemplateParams(type, { ...ctx, language: "ar" }), ...buildTemplateParams(type, { ...ctx, language: "en" })];
+}
+
+export type TemplateChoiceKind = "ar" | "en" | "bi";
+
+/**
+ * Which template to send:
+ *  - customer chose a language → that language (falls back to bilingual, then the other language)
+ *  - no choice yet → bilingual (falls back to Arabic, then English)
+ * `isApproved` lets the caller restrict to approved templates.
+ */
+export function chooseTemplateKind(
+  names: { ar?: string | null; en?: string | null; bi?: string | null },
+  preference: "ar" | "en" | null,
+  isApproved: (name: string) => boolean = () => true,
+): { kind: TemplateChoiceKind; name: string } | null {
+  const order: TemplateChoiceKind[] =
+    preference === "en" ? ["en", "bi", "ar"] : preference === "ar" ? ["ar", "bi", "en"] : ["bi", "ar", "en"];
+  for (const k of order) {
+    const n = names[k];
+    if (n && isApproved(n)) return { kind: k, name: n };
+  }
+  return null;
+}
