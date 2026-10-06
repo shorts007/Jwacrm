@@ -55,6 +55,8 @@ export interface CustomerProfile {
   priceBehaviour?: string | null;
   /** Replenishable products this customer buys repeatedly (V2 personalisation). */
   usualItems?: UsualItem[];
+  /** Last day covered by item (picking) data — YYYY-MM-DD. */
+  itemsAsOf?: string | null;
   preferredStore?: string | null;
 }
 
@@ -89,6 +91,8 @@ export interface CampaignConfig {
     /** BUY_AGAIN: lifecycle stages to target (default AT_RISK) and minimum usual items. */
     stages?: LifecycleStage[];
     minItems?: number; // default 2
+    /** REPLENISHMENT: wait at least N days after any order (default 2). */
+    minDaysSinceOrder?: number;
   };
 }
 

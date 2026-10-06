@@ -28,6 +28,7 @@ export interface DryRunProfileRow {
   customer_segment?: string | null;
   preferred_store_id?: number | null;
   usual_items?: UsualItem[] | null;
+  items_as_of?: string | null;
 }
 
 export function profileFromRow(r: DryRunProfileRow): CustomerProfile {
@@ -50,6 +51,7 @@ export function profileFromRow(r: DryRunProfileRow): CustomerProfile {
     preferredStoreId: r.preferred_store_id ?? null,
     priceBehaviour: r.price_sensitivity ?? null,
     usualItems: r.usual_items ?? undefined,
+    itemsAsOf: r.items_as_of ?? null,
   };
 }
 

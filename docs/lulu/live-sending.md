@@ -56,3 +56,6 @@ rate-limit / block errors (131048, 131056, 80007, 130429, 368, 131031) or 5 fail
 - Templates `restock_ar/_en/_bi`, `buy_again_ar/_en/_bi` (brand-neutral) — created from Campaigns → Step 1.
 - Customer 360 shows each usual item with "due now / overdue / in N days / habit lapsed".
 - Limits: item history only from Apr 2026 and only for orders matched to picking data; product names are the catalogue's English names.
+- **Item-data freshness guard:** item messages are only sent when the customer's latest order date ≤ `items_as_of` (last day
+  in `instaleap_raw`), and Replenishment waits 2 days after any order. Keep the picking table refreshed as often as the order
+  table, or personalised campaigns will (correctly) stay silent for recent buyers. Customer 360 shows "unknown" in that case.

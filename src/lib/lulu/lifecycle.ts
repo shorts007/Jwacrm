@@ -170,6 +170,8 @@ export function matchingCampaigns(
           out.push({ campaign: c, reason: `VIP inactive (${gap} days)` });
         break;
       case "REPLENISHMENT": {
+        if (!itemDataCovers(p)) break;
+        if (gap !== null && gap < (c.params.minDaysSinceOrder ?? 2)) break;
         const due = dueItems(p.usualItems, now, c.params.dueRatio, c.params.overdueRatio).slice(0, c.params.maxItems ?? 3);
         if (due.length) {
           const first = due[0];
@@ -181,6 +183,7 @@ export function matchingCampaigns(
         break;
       }
       case "BUY_AGAIN": {
+        if (!itemDataCovers(p)) break;
         const stages = c.params.stages?.length ? c.params.stages : (["AT_RISK"] as LifecycleStage[]);
         const items = (p.usualItems ?? []).filter((i) => i.times >= 2);
         if (stages.includes(stage) && items.length >= (c.params.minItems ?? 2))
@@ -237,4 +240,14 @@ export function dueItems(items: UsualItem[] | undefined, now: Date, dueRatio = 0
     .filter(({ i, d }) => i.every > 0 && d !== null && d >= dueRatio * i.every && d <= overdueRatio * i.every)
     .sort((a, b) => b.d! / b.i.every - a.d! / a.i.every)
     .map(({ i }) => i);
+}
+
+/**
+ * Item-based messages need to know what the customer bought in their LATEST order. If that order
+ * is newer than the picking data (or the data date is unknown) we stay silent — they may have just
+ * bought the very item we would remind them about.
+ */
+export function itemDataCovers(p: { lastOrderDate?: string | null; itemsAsOf?: string | null }): boolean {
+  if (!p.itemsAsOf) return false;
+  return !p.lastOrderDate || p.lastOrderDate <= p.itemsAsOf;
 }

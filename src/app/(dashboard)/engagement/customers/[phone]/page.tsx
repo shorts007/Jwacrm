@@ -135,6 +135,12 @@ export default function Customer360Page() {
 
           <div className={card}>
             <h2 className="mb-2 text-sm font-semibold">Usual items &amp; restock timing</h2>
+            {d.items.length > 0 && !d.itemsCovered && (
+              <p className="mb-2 rounded bg-amber-500/10 px-2 py-1 text-xs text-amber-700 dark:text-amber-400">
+                Item data only goes up to {d.itemsAsOf ?? "an unknown date"}, but this customer ordered on {p?.last_order_date}. We can&rsquo;t see
+                what was in that order, so no restock or buy-again message will be sent until the picking data is refreshed.
+              </p>
+            )}
             {d.items.length === 0 ? (
               <p className="text-sm text-muted-foreground">No repeat products found (needs 2+ purchases of a replenishable item in the picking data, Apr 2026+).</p>
             ) : (
@@ -156,7 +162,7 @@ export default function Customer360Page() {
                       <td className="px-2 py-1 text-xs">{i.last}</td>
                       <td className="px-2 py-1 text-right text-xs">{i.every} days</td>
                       <td className={`px-2 py-1 text-xs ${i.status === "due" ? "text-emerald-600" : i.status === "overdue" ? "text-amber-600" : "text-muted-foreground"}`}>
-                        {i.status === "ok" ? `in ${i.dueInDays} days` : i.status === "due" ? "due now" : i.status === "overdue" ? `overdue ${-i.dueInDays} days` : "habit lapsed"}
+                        {i.status === "unknown" ? "unknown (newer order not in item data)" : i.status === "ok" ? `in ${i.dueInDays} days` : i.status === "due" ? "due now" : i.status === "overdue" ? `overdue ${-i.dueInDays} days` : "habit lapsed"}
                       </td>
                     </tr>
                   ))}

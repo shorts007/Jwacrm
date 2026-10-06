@@ -29,7 +29,7 @@ const items: UsualItem[] = [
 ];
 const cust = (o: Partial<CustomerProfile> = {}): CustomerProfile => ({
   customerId: "c", mobile: "+966500000000", language: "ar", lastOrderDate: "2026-09-30", totalOrders: 12, totalSales: 2000,
-  medianIntervalDays: 7, vipFlag: false, marketingOptIn: true, activeComplaint: false, usualItems: items, ...o,
+  medianIntervalDays: 7, vipFlag: false, marketingOptIn: true, activeComplaint: false, usualItems: items, itemsAsOf: "2026-10-06", ...o,
 });
 
 describe("dueItems", () => {
@@ -52,6 +52,14 @@ describe("Replenishment & Buy Again campaigns", () => {
     const r = run(cust({ lastOrderDate: "2026-09-25", medianIntervalDays: 5, usualItems: items.map((i) => ({ ...i, last: "2026-06-01" })) }));
     expect(r.action?.campaignCode).toBe("BUY_AGAIN");
     expect(r.skipped).toContainEqual({ campaignCode: "INACTIVE_15", reason: "lower_priority" });
+  });
+  it("stays silent when the latest order is newer than the item data (could have just bought it)", () => {
+    const r = run(cust({ lastOrderDate: "2026-10-03", itemsAsOf: "2026-09-30" }));
+    expect(r.action?.campaignCode).not.toBe("REPLENISHMENT");
+    expect(run(cust({ itemsAsOf: null })).action?.campaignCode).not.toBe("REPLENISHMENT");
+  });
+  it("waits 2 days after any order before a restock reminder", () => {
+    expect(run(cust({ lastOrderDate: "2026-10-06" })).action?.campaignCode).not.toBe("REPLENISHMENT");
   });
   it("no usual items → normal lifecycle campaigns", () => {
     const r = run(cust({ lastOrderDate: "2026-09-25", medianIntervalDays: 5, usualItems: undefined }));

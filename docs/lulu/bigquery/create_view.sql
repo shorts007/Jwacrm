@@ -379,6 +379,8 @@ SELECT
        AND s.latest_storeid IN UNNEST((SELECT focus_storeids FROM params)),
      (SELECT focus_region_name FROM params), s.city) AS city,
   u.usual_items,                            -- JSON array: [{name, times, last, every}] (V2 personalisation)
+  -- last day covered by the picking data; item messages wait until a customer's latest order is covered
+  (SELECT CAST(MAX(DATE(created_at, 'Asia/Riyadh')) AS STRING) FROM `myecomlulu.jackpot.instaleap_raw`) AS items_as_of,
   -- newest order in the source data; lets the app warn when the feed is stale
   FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%SZ', (SELECT MAX(date_placed) FROM orders_raw)) AS data_as_of
 FROM scored AS s

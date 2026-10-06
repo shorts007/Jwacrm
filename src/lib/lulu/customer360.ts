@@ -5,7 +5,7 @@
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { campaignFromRow, policyFromRow, type CampaignRow, type PolicyRow } from "./defaults";
-import { daysSince, lifecycleStage, thresholdsFromCampaigns } from "./lifecycle";
+import { daysSince, itemDataCovers, lifecycleStage, thresholdsFromCampaigns } from "./lifecycle";
 import { decideNextBestAction } from "./next-best-action";
 import { OFFER_COLUMNS, offerExpiry, offerFromRow, offerText, type Offer, type OfferRow } from "./offers";
 import { profileFromRow, type DryRunProfileRow } from "./dry-run";
@@ -61,11 +61,14 @@ export interface Customer360 {
   next: { campaign: string; reason: string; live: boolean } | null;
   nextSkipped: { campaign: string; reason: string }[];
   /** Usual items with restock status (V2). */
-  items: { name: string; times: number; last: string; every: number; dueInDays: number; status: "due" | "overdue" | "lapsed" | "ok" }[];
+  items: { name: string; times: number; last: string; every: number; dueInDays: number; status: "due" | "overdue" | "lapsed" | "ok" | "unknown" }[];
+  /** Last day covered by item data, and whether the latest order is covered. */
+  itemsAsOf: string | null;
+  itemsCovered: boolean;
 }
 
 const PROFILE_SELECT =
-  "customer_id, mobile, name, language, birthday, first_order_date, last_order_date, total_orders, total_sales, average_order_value, orders_30d, orders_90d, median_interval_days, stddev_interval_days, vip_flag, marketing_opt_in, active_complaint, suspect_reason, preferred_store, preferred_store_id, preferred_channel, preferred_category, stores_used, price_sensitivity, discount_order_share, avg_discount_pct, total_discount, customer_segment, rfm_recency, rfm_frequency, rfm_monetary, lifecycle_stage, city, synced_at, active, usual_items";
+  "customer_id, mobile, name, language, birthday, first_order_date, last_order_date, total_orders, total_sales, average_order_value, orders_30d, orders_90d, median_interval_days, stddev_interval_days, vip_flag, marketing_opt_in, active_complaint, suspect_reason, preferred_store, preferred_store_id, preferred_channel, preferred_category, stores_used, price_sensitivity, discount_order_share, avg_discount_pct, total_discount, customer_segment, rfm_recency, rfm_frequency, rfm_monetary, lifecycle_stage, city, synced_at, active, usual_items, items_as_of";
 
 export const phoneDigits = (s: string | null | undefined) => (s ?? "").replace(/\D/g, "");
 
@@ -171,19 +174,20 @@ export async function loadCustomer360(db: SupabaseClient, accountId: string, dig
       ? new Date(Date.parse(`${profile.last_order_date}T00:00:00Z`) + Math.round(median) * 86_400_000).toISOString().slice(0, 10)
       : null;
 
+  const itemsAsOf = profile?.items_as_of ?? null;
+  const itemsCovered = itemDataCovers({ lastOrderDate: profile?.last_order_date, itemsAsOf });
   const items = (profile?.usual_items ?? []).map((i) => {
     const since = daysSince(i.last, now) ?? 0;
     const ratio = i.every ? since / i.every : 0;
-    return {
-      ...i,
-      dueInDays: i.every - since,
-      status: (ratio > 2 ? "lapsed" : ratio > 1.2 ? "overdue" : ratio >= 0.9 ? "due" : "ok") as "due" | "overdue" | "lapsed" | "ok",
-    };
+    const status = !itemsCovered ? "unknown" : ratio > 2 ? "lapsed" : ratio > 1.2 ? "overdue" : ratio >= 0.9 ? "due" : "ok";
+    return { ...i, dueInDays: i.every - since, status: status as "due" | "overdue" | "lapsed" | "ok" | "unknown" };
   });
 
   const l = lang.data?.language as string | undefined;
   return {
     items,
+    itemsAsOf,
+    itemsCovered,
     digits,
     profile,
     stage,
