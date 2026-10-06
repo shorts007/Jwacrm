@@ -28,7 +28,7 @@ WITH params AS (
     TRUE AS prefer_picking_store,
     3    AS max_names_per_phone,
     45   AS max_orders_90d_per_phone,
-    [3805, 3806, 3808, 3809, 3810, 3814, 3818] AS focus_storeids,   -- Jeddah stores (same as customer_master.sql)
+    [3805, 3806, 3808, 3809, 3810, 3814, 3818, 3821] AS focus_storeids,   -- Jeddah stores incl. 3821 Russaifa (same as customer_master.sql)
     12   AS cohort_months,
     30   AS return_window_days,
     90   AS product_window_days,
@@ -90,10 +90,10 @@ picking_store AS (
   SELECT order_number_str, ARRAY_AGG(item_store ORDER BY n DESC LIMIT 1)[OFFSET(0)] AS item_store
   FROM (
     SELECT REGEXP_EXTRACT(job_number, r'^Lulu-(\d+)') AS order_number_str,
-           CAST(REGEXP_EXTRACT(store_name_1, r'^(\d{4})') AS INT64) AS item_store,
+           CAST(store_reference AS INT64) AS item_store,   -- the order table's storeid IS this store_reference
            COUNT(*) AS n
     FROM `myecomlulu.jackpot.instaleap_raw`
-    WHERE REGEXP_CONTAINS(store_name_1, r'^\d{4}') AND job_number IS NOT NULL
+    WHERE store_reference IS NOT NULL AND job_number IS NOT NULL
     GROUP BY order_number_str, item_store
   )
   GROUP BY order_number_str
@@ -130,17 +130,20 @@ base AS (
 -- Fulfilment quality per order from the picking system (Apr 2026+). A replaced original item is not "missing".
 fulfil AS (
   SELECT order_number_str,
-         CASE WHEN SUM(missing) > 0 THEN 'missing items'
+         CASE WHEN COUNTIF(found_known) = 0 THEN 'no item detail'
+              WHEN SUM(missing) > 0 THEN 'missing items'
               WHEN SUM(subs) > 0 THEN 'substituted'
               ELSE 'complete' END AS fulfilment
   FROM (
     SELECT
       REGEXP_EXTRACT(i.job_number, r'^Lulu-(\d+)') AS order_number_str,
-      IF(IFNULL(i.is_substitute, FALSE) OR NULLIF(i.replaced_by, '') IS NOT NULL, 0,
-         GREATEST(IFNULL(i.quantity, 0) - IFNULL(i.found_quantity, 0), 0)) AS missing,
+      i.found_quantity IS NOT NULL AS found_known,
+      -- missing only when the picker actually recorded a found quantity; replaced originals are not "missing"
+      IF(i.found_quantity IS NULL OR IFNULL(i.is_substitute, FALSE) OR NULLIF(i.replaced_by, '') IS NOT NULL, 0,
+         GREATEST(IFNULL(i.quantity, 0) - i.found_quantity, 0)) AS missing,
       IF(IFNULL(i.is_substitute, FALSE), 1, 0) AS subs
     FROM `myecomlulu.jackpot.instaleap_raw` AS i
-    WHERE i.job_state = 'FINISHED'
+    WHERE NOT REGEXP_CONTAINS(UPPER(IFNULL(i.job_state, '')), r'CANCEL')
     QUALIFY ROW_NUMBER() OVER (PARTITION BY i.id ORDER BY i.updated_at DESC) = 1
   )
   GROUP BY order_number_str
@@ -346,14 +349,15 @@ m_dow AS (
 items_d AS (
   SELECT
     REGEXP_EXTRACT(i.job_number, r'^Lulu-(\d+)') AS order_number_str,
-    CAST(REGEXP_EXTRACT(i.store_name_1, r'^(\d{4})') AS INT64) AS item_store,
+    CAST(i.store_reference AS INT64) AS item_store,
     TRIM(i.name) AS name,
     SUBSTR(REGEXP_EXTRACT(i.attributes, r'"category"\s*:\s*"(\d+)"'), 1, 3) AS dept,
-    IFNULL(i.price, 0) * IFNULL(i.found_quantity, 0) AS sales,
-    IFNULL(i.found_quantity, 0) AS units,
+    -- found_quantity is often empty on older rows: fall back to the ordered quantity
+    IFNULL(i.price, 0) * COALESCE(i.found_quantity, i.quantity, 0) AS sales,
+    COALESCE(i.found_quantity, i.quantity, 0) AS units,
     DATE(i.created_at, (SELECT tz FROM params)) AS d
   FROM `myecomlulu.jackpot.instaleap_raw` AS i
-  WHERE i.job_state = 'FINISHED' AND i.name IS NOT NULL
+  WHERE NOT REGEXP_CONTAINS(UPPER(IFNULL(i.job_state, '')), r'CANCEL') AND i.name IS NOT NULL
   QUALIFY ROW_NUMBER() OVER (PARTITION BY i.id ORDER BY i.updated_at DESC) = 1
 ),
 items_f AS (
@@ -378,7 +382,9 @@ prod_agg AS (
 prod_top AS (
   SELECT * FROM prod_agg
   WHERE TRUE
+  -- top N by revenue PLUS top N by number of customers (everyday drivers)
   QUALIFY ROW_NUMBER() OVER (ORDER BY revenue DESC) <= (SELECT top_products FROM params)
+       OR ROW_NUMBER() OVER (ORDER BY customers DESC) <= (SELECT top_products FROM params)
 ),
 m_product AS (
   SELECT 'product' AS grp, 'last90' AS period, 'product' AS dim, a.name AS dim_value, x.metric, x.value

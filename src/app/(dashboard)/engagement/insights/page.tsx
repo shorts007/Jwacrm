@@ -74,6 +74,7 @@ export default function CustomerInsightsPage() {
   const [loaded, setLoaded] = useState(false);
   const [storeMetric, setStoreMetric] = useState<DimMetric>("orders");
   const [channelMetric, setChannelMetric] = useState<DimMetric>("revenue");
+  const [rankBy, setRankBy] = useState<"revenue" | "customers">("customers");
 
   useEffect(() => {
     if (!accountId) return;
@@ -184,7 +185,7 @@ export default function CustomerInsightsPage() {
             hint="Which stores are growing or shrinking. Store = the store that fulfilled the order."
             right={<MetricPicker value={storeMetric} onChange={setStoreMetric} />}
           >
-            <DimMonthly rows={rows} grp="store_monthly" metric={storeMetric} label={storeLabel} />
+            <DimMonthly rows={rows} grp="store_monthly" metric={storeMetric} label={storeLabel} asOf={asOf} />
           </Section>
 
           <Section
@@ -192,7 +193,7 @@ export default function CustomerInsightsPage() {
             hint="Which ordering channel brings the most customers and value."
             right={<MetricPicker value={channelMetric} onChange={setChannelMetric} />}
           >
-            <DimMonthly rows={rows} grp="channel_monthly" metric={channelMetric} label={channelLabel} />
+            <DimMonthly rows={rows} grp="channel_monthly" metric={channelMetric} label={channelLabel} asOf={asOf} />
           </Section>
 
           <Section
@@ -226,7 +227,7 @@ export default function CustomerInsightsPage() {
           </Section>
 
           <Section title="Retention by first-order month" hint="How many new customers are still ordering 1, 2, 3… months later.">
-            <CohortHeatmap rows={rows} />
+            <CohortHeatmap rows={rows} asOf={asOf} />
           </Section>
 
           <div className="grid gap-6 xl:grid-cols-2">
@@ -238,8 +239,25 @@ export default function CustomerInsightsPage() {
             </Section>
           </div>
 
-          <Section title="Products driving sales" hint="Top products by revenue in the last 90 days of picking data, compared with the 90 days before.">
-            <ProductsTable rows={rows} />
+          <Section
+            title="Products driving sales"
+            hint="Top products in the last 90 days of picking data, compared with the 90 days before. 'Customers' shows everyday drivers; 'Revenue' is pulled up by one-off electronics."
+            right={
+              <div className="flex gap-1 rounded-lg bg-muted/60 p-1">
+                {(["customers", "revenue"] as const).map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setRankBy(k)}
+                    className={`rounded-md px-2 py-1 text-xs ${rankBy === k ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground"}`}
+                  >
+                    Rank by {k}
+                  </button>
+                ))}
+              </div>
+            }
+          >
+            <ProductsTable rows={rows} rankBy={rankBy} />
           </Section>
 
           <Section title="Departments month-on-month">
