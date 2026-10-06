@@ -138,8 +138,18 @@ export async function POST(request: Request) {
 
     const admin = supabaseAdmin();
     const results: { phone: string; ok: boolean; error?: string; code?: string }[] = [];
+    const { data: optRows } = await admin
+      .from('lulu_opt_outs')
+      .select('phone_digits')
+      .eq('account_id', ctx.accountId)
+      .in('phone_digits', phones.map((p) => p.replace(/\D/g, '')));
+    const optedOut = new Set((optRows ?? []).map((r) => r.phone_digits as string));
 
     for (const phone of phones) {
+      if (optedOut.has(phone.replace(/\D/g, ''))) {
+        results.push({ phone, ok: false, error: 'opted out (replied STOP) — reply START from this phone to receive messages again' });
+        continue;
+      }
       const key = `TEST_${campaign.campaign_code}_${Date.now()}_${phone.replace(/\D/g, '')}`;
       const row = {
         account_id: ctx.accountId,
