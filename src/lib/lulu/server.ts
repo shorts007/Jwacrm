@@ -48,13 +48,15 @@ export interface LiveCampaign extends CampaignConfig {
   templateAr: string | null;
   templateEn: string | null;
   templateBi: string | null;
+  holdoutPct: number;
+  attributionDays: number;
 }
 
 /** Campaigns allowed to send to customers right now: Live switch on, mode LIVE, not paused/stopped. */
 export async function loadLiveCampaigns(db: SupabaseClient, accountId: string): Promise<LiveCampaign[]> {
   const { data, error } = await db
     .from("lulu_campaigns")
-    .select("id, campaign_code, name, campaign_type, rule_params, offer_id, active, mode, status, template_name_ar, template_name_en, template_name_bilingual")
+    .select("id, campaign_code, name, campaign_type, rule_params, offer_id, active, mode, status, template_name_ar, template_name_en, template_name_bilingual, holdout_pct, attribution_days")
     .eq("account_id", accountId)
     .eq("active", true)
     .eq("mode", "LIVE");
@@ -66,6 +68,8 @@ export async function loadLiveCampaigns(db: SupabaseClient, accountId: string): 
       templateAr: (r.template_name_ar as string | null) ?? null,
       templateEn: (r.template_name_en as string | null) ?? null,
       templateBi: (r.template_name_bilingual as string | null) ?? null,
+      holdoutPct: Number(r.holdout_pct ?? 0),
+      attributionDays: Number(r.attribution_days ?? 7),
     }));
 }
 

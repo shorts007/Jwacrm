@@ -3,8 +3,8 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## LuLu customer sync (BigQuery -> WACRM)\n**Before running**\n1. In BigQuery run `docs/lulu/bigquery/create_view.sql` (creates `lulu_customer_master`) AND `create_insights_view.sql` (creates `lulu_insights_metrics`).\n2. In Supabase run migrations 043-050.\n3. In WACRM: Settings -> API keys -> create a key with scope `contacts:write`.\n4. n8n credentials: *Google BigQuery* (service account with BigQuery Data Viewer + Job User) and *Header Auth* (name `Authorization`, value `Bearer <your key>`) - used by BOTH HTTP nodes.\n5. URLs point at https://jwacrm.vercel.app - change them if your domain differs.\n\n**How a run works:** all customers are sent in batches tagged with one run id. Only if every batch saved, the last step retires customers no longer in the feed (they are hidden, not deleted, and come back automatically if they reappear). A partial run never retires anyone.\n\nRun **Manual** first and check `/engagement`. The schedule is off until you activate the workflow.\n\n**Two branches:** top = customers (batches + finish), bottom = the Customer Insights snapshot (one request).",
-        "height": 440,
+        "content": "## LuLu customer sync (BigQuery -> WACRM)\n**Before running**\n1. In BigQuery run `docs/lulu/bigquery/create_view.sql` (creates `lulu_customer_master`) AND `create_insights_view.sql` (creates `lulu_insights_metrics`) AND `create_recent_orders_view.sql` (creates `lulu_recent_orders`).\n2. In Supabase run migrations 043-055.\n3. In WACRM: Settings -> API keys -> create a key with scope `contacts:write`.\n4. n8n credentials: *Google BigQuery* (service account with BigQuery Data Viewer + Job User) and *Header Auth* (name `Authorization`, value `Bearer <your key>`) - used by BOTH HTTP nodes.\n5. URLs point at https://jwacrm.vercel.app - change them if your domain differs.\n\n**How a run works:** all customers are sent in batches tagged with one run id. Only if every batch saved, the last step retires customers no longer in the feed (they are hidden, not deleted, and come back automatically if they reappear). A partial run never retires anyone.\n\nRun **Manual** first and check `/engagement`. The schedule is off until you activate the workflow.\n\n**Three branches:** customers (batches + finish), the Customer Insights snapshot, and recent orders for campaign revenue attribution.",
+        "height": 480,
         "width": 520,
         "color": 4
       },
@@ -268,6 +268,65 @@
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "projectId": {
+          "__rl": true,
+          "value": "myecomlulu",
+          "mode": "id"
+        },
+        "sqlQuery": "SELECT * FROM `myecomlulu.jackpot.lulu_recent_orders`",
+        "options": {}
+      },
+      "id": "n-bq-orders",
+      "name": "BigQuery recent orders",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2.1,
+      "position": [
+        260,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Last 14 days of delivered orders -> revenue attribution for campaign results.\nconst orders = $input.all().map(i => i.json);\nreturn [{ json: { orders } }];"
+      },
+      "id": "n-orders-build",
+      "name": "Build attribution payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://jwacrm.vercel.app/api/v1/lulu/attribution/sync",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ orders: $json.orders }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "n-orders-post",
+      "name": "POST attribution",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        760
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
     }
   ],
   "connections": {
@@ -281,6 +340,11 @@
           },
           {
             "node": "BigQuery insights metrics",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "BigQuery recent orders",
             "type": "main",
             "index": 0
           }
@@ -297,6 +361,11 @@
           },
           {
             "node": "BigQuery insights metrics",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "BigQuery recent orders",
             "type": "main",
             "index": 0
           }
@@ -404,6 +473,28 @@
         [
           {
             "node": "POST insights snapshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BigQuery recent orders": {
+      "main": [
+        [
+          {
+            "node": "Build attribution payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build attribution payload": {
+      "main": [
+        [
+          {
+            "node": "POST attribution",
             "type": "main",
             "index": 0
           }

@@ -11,3 +11,4 @@ export * from "./template-defs";
 export * from "./insights";
 export * from "./opt-out";
 export * from "./sender";
+export * from "./attribution";

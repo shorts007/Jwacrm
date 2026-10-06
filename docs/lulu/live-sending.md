@@ -14,3 +14,13 @@ approved template, customer re-checked right before sending (opt-out, suspect, o
 atomic claim (SCHEDULED → SENDING), minimum spacing, daily cap, auto-pause of all LIVE campaigns on Meta
 rate-limit / block errors (131048, 131056, 80007, 130429, 368, 131031) or 5 failures in a row.
 "Pause all" in the app cancels today's remaining queue.
+
+## Results & attribution
+- Each LIVE campaign keeps a **holdout**: `holdout_pct` (default 10 %) of eligible customers are recorded but NOT messaged
+  (status SKIPPED, skip_reason `holdout`, chosen deterministically per customer+campaign). They don't use send slots.
+- The daily n8n sync posts the last 14 days of delivered orders (`lulu_recent_orders` view) to
+  `POST /api/v1/lulu/attribution/sync`. Orders within `attribution_days` (default 7) after a message → ORDER_ATTRIBUTED
+  (last touch); orders by holdout customers in the same window → CONTROL_ORDER.
+- Inbound messages within 7 days of a campaign message → REPLIED.
+- `/engagement/results`: funnel, ordered %, revenue, revenue per message, control ordered %, **lift** (pts) and
+  estimated extra customers. Lift is only trustworthy with ≥100 control and ≥300 messaged customers.
