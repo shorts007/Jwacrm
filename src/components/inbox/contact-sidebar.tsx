@@ -21,6 +21,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { format } from "date-fns";
 import { useTranslations } from "next-intl";
 import { contactHandle } from "@/lib/whatsapp/wa-identity";
+// LuLu customization: Customer 360 card (see docs/lulu). Self-contained; remove this import + one line below to revert.
+import { CustomerCard } from "@/components/lulu/customer-card";
 
 interface ContactSidebarProps {
   contact: Contact | null;
@@ -256,6 +258,9 @@ export function ContactSidebar({ contact }: ContactSidebarProps) {
               )}
             </div>
           </div>
+
+          {/* LuLu Customer 360 */}
+          <CustomerCard phone={contact.phone_normalized ?? contact.phone} />
 
           {/* Divider */}
           <div className="my-4 border-t border-border" />

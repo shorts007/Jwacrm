@@ -13,3 +13,4 @@ export * from "./opt-out";
 export * from "./sender";
 export * from "./attribution";
 export * from "./offers";
+export * from "./customer360";
