@@ -12,12 +12,15 @@
 import { requireApiKey } from '@/lib/auth/api-context';
 import { ok, toApiErrorResponse } from '@/lib/api/v1/respond';
 import { isHoldout } from '@/lib/lulu/attribution';
+import { campaignNeedsOffer, customerOfferReason, offerBlockReason } from '@/lib/lulu/offers';
 import { gapBeforeNext, planSends, riyadhDayStart, totalDuration } from '@/lib/lulu/sender';
 import {
   campaignTemplateNames,
   chooseTemplate,
   liveGates,
   loadActiveProfiles,
+  loadOfferDiscountUsed,
+  loadOffers,
   loadApprovedTemplates,
   loadLiveCampaigns,
   loadPolicyAndSettings,
@@ -34,20 +37,33 @@ export async function POST(request: Request) {
     const accountId = ctx.accountId;
     const now = new Date();
 
+    // Global gates stop everything; per-campaign problems only drop that campaign.
     const blocked = await liveGates(db, accountId, now);
+    if (blocked.length) return ok({ queued: 0, blocked });
     const live = await loadLiveCampaigns(db, accountId);
-    if (live.length === 0) blocked.push('No campaign is LIVE (Live switch on + mode LIVE).');
+    if (live.length === 0) return ok({ queued: 0, blocked: ['No campaign is LIVE (Live switch on + mode LIVE).'] });
 
-    // Campaigns without any approved template cannot send.
-    const approved = await loadApprovedTemplates(
-      db,
-      accountId,
-      live.flatMap(campaignTemplateNames)
-    );
-    const sendable = live.filter((c) => chooseTemplate(c, null, approved));
-    for (const c of live) if (!sendable.includes(c)) blocked.push(`${c.code}: no APPROVED template set.`);
-    if (blocked.length > 0 && sendable.length === 0) return ok({ queued: 0, blocked });
-    if (blocked.some((b) => !b.includes(': no APPROVED template'))) return ok({ queued: 0, blocked });
+    const warnings: string[] = [];
+    const approved = await loadApprovedTemplates(db, accountId, live.flatMap(campaignTemplateNames));
+    const needOffer = live.some((c) => campaignNeedsOffer(c.type));
+    const [offers, offerUsed] = needOffer
+      ? await Promise.all([loadOffers(db, accountId), loadOfferDiscountUsed(db, accountId)])
+      : [new Map(), new Map<string, number>()];
+    const sendable = live.filter((c) => {
+      if (!chooseTemplate(c, null, approved)) {
+        warnings.push(`${c.code}: no APPROVED template set.`);
+        return false;
+      }
+      if (campaignNeedsOffer(c.type)) {
+        const reason = offerBlockReason(c.offerId ? offers.get(c.offerId) : null, now, c.offerId ? (offerUsed.get(c.offerId) ?? 0) : 0);
+        if (reason) {
+          warnings.push(`${c.code}: ${reason} — campaign skipped (its message promises an offer).`);
+          return false;
+        }
+      }
+      return true;
+    });
+    if (sendable.length === 0) return ok({ queued: 0, blocked: warnings });
 
     const { policy, settings } = await loadPolicyAndSettings(db, accountId);
     const dayStart = riyadhDayStart(now).toISOString();
@@ -104,10 +120,29 @@ export async function POST(request: Request) {
 
     const endOfDay = new Date(riyadhDayStart(now).getTime() + DAY).toISOString();
     const pctById = new Map(sendable.map((c) => [c.id, c.holdoutPct]));
+    const campaignById = new Map(sendable.map((c) => [c.id, c]));
+    const rowById = new Map(rows.map((r) => [r.customer_id, r]));
     const inserts: Record<string, unknown>[] = [];
     let toSend = 0;
     let holdouts = 0;
     for (const p of plan.planned) {
+      // Offer eligibility (segment / store / price behaviour) for campaigns that carry an offer.
+      const camp = campaignById.get(p.campaignId);
+      if (camp && campaignNeedsOffer(camp.type) && camp.offerId) {
+        const offer = offers.get(camp.offerId);
+        const row = rowById.get(p.customerId);
+        const why = offer && row
+          ? customerOfferReason(offer, {
+              customerSegment: row.customer_segment ?? null,
+              preferredStoreId: row.preferred_store_id ?? null,
+              priceBehaviour: row.price_sensitivity ?? null,
+            })
+          : 'offer_missing';
+        if (why) {
+          plan.skipped[why] = (plan.skipped[why] ?? 0) + 1;
+          continue;
+        }
+      }
       const holdout = isHoldout(p.customerId, p.campaignCode, pctById.get(p.campaignId) ?? 0);
       if (!holdout && toSend >= remainingCap) break;
       if (holdout) holdouts++;
@@ -148,7 +183,7 @@ export async function POST(request: Request) {
       used_before: used,
       evaluated: plan.evaluated,
       skipped: plan.skipped,
-      warnings: blocked,
+      warnings,
       first_wait_seconds: gapBeforeNext(sentToday, settings),
       estimated_minutes: Math.round(totalDuration(toSend, settings) / 60),
     });

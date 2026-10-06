@@ -6,12 +6,13 @@ import { campaignFromRow, policyFromRow, type CampaignRow, type PolicyRow } from
 import type { DryRunProfileRow } from "./dry-run";
 import { DEFAULT_SEND_SETTINGS, type SendSettings } from "./sender";
 import { chooseTemplateKind, type TemplateChoiceKind } from "./messages";
+import { OFFER_COLUMNS, offerFromRow, type Offer, type OfferRow } from "./offers";
 import type { CampaignConfig, ContactPolicy } from "./types";
 
 const PAGE = 1000;
 const PARALLEL = 8;
 export const PROFILE_COLUMNS =
-  "customer_id, mobile, name, language, birthday, last_order_date, total_orders, total_sales, median_interval_days, vip_flag, marketing_opt_in, active_complaint, suspect_reason, preferred_store, price_sensitivity";
+  "customer_id, mobile, name, language, birthday, last_order_date, total_orders, total_sales, median_interval_days, vip_flag, marketing_opt_in, active_complaint, suspect_reason, preferred_store, price_sensitivity, customer_segment, preferred_store_id";
 
 /** All ACTIVE synced profiles of the account (paged; PostgREST returns ≤1000 rows per call). */
 export async function loadActiveProfiles(db: SupabaseClient, accountId: string): Promise<DryRunProfileRow[]> {
@@ -173,4 +174,18 @@ export async function liveGates(db: SupabaseClient, accountId: string, now: Date
   }
   if (!hooks || hooks.length === 0) reasons.push("Step 0 (STOP handling) is not enabled.");
   return reasons;
+}
+
+/** All offers of the account by id. */
+export async function loadOffers(db: SupabaseClient, accountId: string): Promise<Map<string, Offer>> {
+  const { data, error } = await db.from("lulu_offers").select(OFFER_COLUMNS).eq("account_id", accountId);
+  if (error) throw error;
+  return new Map((data ?? []).map((r) => [r.id as string, offerFromRow(r as unknown as OfferRow)]));
+}
+
+/** Attributed discount cost so far per offer (budget used). */
+export async function loadOfferDiscountUsed(db: SupabaseClient, accountId: string): Promise<Map<string, number>> {
+  const { data, error } = await db.rpc("lulu_offer_usage", { p_account: accountId });
+  if (error) throw error;
+  return new Map(((data ?? []) as { offer_id: string; discount_cost: number | string }[]).map((r) => [r.offer_id, Number(r.discount_cost)]));
 }

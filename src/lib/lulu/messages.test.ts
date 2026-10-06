@@ -7,10 +7,11 @@ describe("template params", () => {
       .toEqual(["Ahmed", "free delivery", "12 Oct 2026"]);
     expect(buildTemplateParams("INACTIVE_15", { name: "Ahmed Ali", language: "en" })).toEqual(["Ahmed"]);
   });
-  it("falls back politely for a missing name and a default offer in the right language", () => {
+  it("falls back politely for a missing name, but never invents an offer", () => {
     expect(displayName(null, "ar")).toBe("عزيزنا العميل");
     expect(displayName("   ", "en")).toBe("there");
-    expect(buildTemplateParams("VIP_PROTECTION", { name: "سارة", language: "ar" })).toEqual(["سارة", "توصيل مجاني"]);
+    expect(buildTemplateParams("VIP_PROTECTION", { name: "سارة", language: "ar" })).toEqual(["سارة", ""]);
+    expect(buildTemplateParams("VIP_PROTECTION", { name: "Sara", language: "en", offerText: "SAR 20 off" })).toEqual(["Sara", "SAR 20 off"]);
   });
   it("strips newlines and repeated spaces (Meta rejects them)", () => {
     expect(cleanVariable("a\nb\t c   d")).toBe("a b c d");

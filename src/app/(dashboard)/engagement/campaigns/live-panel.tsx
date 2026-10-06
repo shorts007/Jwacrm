@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangle, Pause, Play, RefreshCw, Radio } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { DEFAULT_SEND_SETTINGS, riyadhDayStart, totalDuration, type SendSettings } from "@/lib/lulu";
+import { DEFAULT_SEND_SETTINGS, OFFER_CAMPAIGNS, riyadhDayStart, totalDuration, type CampaignType, type SendSettings } from "@/lib/lulu";
 
 export interface LiveCampaignRow {
   id: string;
@@ -19,6 +19,8 @@ export interface LiveCampaignRow {
   template_name_ar: string | null;
   template_name_en: string | null;
   template_name_bilingual?: string | null;
+  campaign_type?: string;
+  offer_id?: string | null;
 }
 
 interface ActionRow {
@@ -43,11 +45,12 @@ export function LivePanel({ accountId, campaigns, onChanged }: { accountId: stri
   const [delivery, setDelivery] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [offers, setOffers] = useState<{ id: string; offer_code: string; name: string; active: boolean }[]>([]);
 
   const load = useCallback(async () => {
     const db = createClient();
     const dayStart = riyadhDayStart(new Date()).toISOString();
-    const [{ data: pol }, { data: acts }, { data: evs }] = await Promise.all([
+    const [{ data: pol }, { data: acts }, { data: evs }, { data: offs }] = await Promise.all([
       db.from("lulu_contact_policy").select("*").eq("account_id", accountId).maybeSingle(),
       db
         .from("lulu_customer_next_actions")
@@ -64,7 +67,9 @@ export function LivePanel({ accountId, campaigns, onChanged }: { accountId: stri
         .gte("occurred_at", dayStart)
         .in("event_type", ["DELIVERED", "READ", "FAILED"])
         .limit(2000),
+      db.from("lulu_offers").select("id, offer_code, name, active").eq("account_id", accountId).order("offer_code"),
     ]);
+    setOffers((offs ?? []) as { id: string; offer_code: string; name: string; active: boolean }[]);
     if (pol) {
       const p = pol as { daily_send_cap?: number; send_gap_base_seconds?: number; send_gap_increment_seconds?: number };
       setSettings({
@@ -123,6 +128,12 @@ export function LivePanel({ accountId, campaigns, onChanged }: { accountId: stri
       .update(live ? { mode: "LIVE", status: "RUNNING" } : { mode: "DRY_RUN", status: "DRAFT" })
       .eq("id", c.id);
     setMsg(error ? error.message : live ? `${c.name} is LIVE.` : `${c.name} is back in dry-run mode.`);
+    onChanged();
+  };
+
+  const setOffer = async (c: LiveCampaignRow, offerId: string) => {
+    const { error } = await createClient().from("lulu_campaigns").update({ offer_id: offerId || null }).eq("id", c.id);
+    setMsg(error ? error.message : `Offer for ${c.name} updated.`);
     onChanged();
   };
 
@@ -216,6 +227,7 @@ export function LivePanel({ accountId, campaigns, onChanged }: { accountId: stri
               <th className="px-2 py-1.5 font-medium">Live switch</th>
               <th className="px-2 py-1.5 font-medium">Mode</th>
               <th className="px-2 py-1.5 font-medium">Status</th>
+              <th className="px-2 py-1.5 font-medium">Offer</th>
               <th className="px-2 py-1.5 font-medium" />
             </tr>
           </thead>
@@ -226,6 +238,22 @@ export function LivePanel({ accountId, campaigns, onChanged }: { accountId: stri
                 <td className="px-2 py-1.5">{c.active ? "On" : "Off"}</td>
                 <td className={`px-2 py-1.5 ${c.mode === "LIVE" ? "font-semibold text-emerald-600" : ""}`}>{c.mode}</td>
                 <td className={`px-2 py-1.5 ${c.status === "PAUSED" ? "text-amber-600" : ""}`}>{c.status}</td>
+                <td className="px-2 py-1.5">
+                  {c.campaign_type && OFFER_CAMPAIGNS.has(c.campaign_type as CampaignType) ? (
+                    <select
+                      className="rounded-lg border border-border bg-background px-2 py-1 text-xs"
+                      value={c.offer_id ?? ""}
+                      onChange={(e) => void setOffer(c, e.target.value)}
+                    >
+                      <option value="">— required —</option>
+                      {offers.map((o) => (
+                        <option key={o.id} value={o.id}>{o.offer_code}{o.active ? "" : " (inactive)"}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">no offer in message</span>
+                  )}
+                </td>
                 <td className="px-2 py-1.5 text-right">
                   {c.mode === "LIVE" ? (
                     <button type="button" className={btn} onClick={() => void setMode(c, false)}>Back to dry run</button>
