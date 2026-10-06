@@ -44,6 +44,7 @@ interface BaseCounts {
   vip: number;
   offerDriven: number;
   fullPrice: number;
+  optedOut: number;
 }
 
 const CHANNEL_LABEL: Record<string, string> = { ios: "iOS app", android: "Android app", website: "Website", unknown: "Unknown" };
@@ -98,7 +99,8 @@ export default function CustomerInsightsPage() {
       base().eq("vip_flag", true),
       base().eq("price_sensitivity", "Offer-driven"),
       base().eq("price_sensitivity", "Full-price"),
-    ]).then(([s, total, active, newFirst, atRisk, dormant, lost, vip, offer, full]) => {
+      db.from("lulu_opt_outs").select("phone_digits", { count: "exact", head: true }).eq("account_id", accountId),
+    ]).then(([s, total, active, newFirst, atRisk, dormant, lost, vip, offer, full, opt]) => {
       if (s.error) {
         setError(/lulu_insights_snapshot/.test(s.error.message) ? "Run migration 050 in Supabase to enable this page." : s.error.message);
       } else {
@@ -114,6 +116,7 @@ export default function CustomerInsightsPage() {
         vip: vip.count ?? 0,
         offerDriven: offer.count ?? 0,
         fullPrice: full.count ?? 0,
+        optedOut: opt.error ? 0 : (opt.count ?? 0),
       });
       setLoaded(true);
     });
@@ -152,6 +155,7 @@ export default function CustomerInsightsPage() {
               ["VIP", counts.vip],
               ["Discount-driven", counts.offerDriven],
               ["Full-price buyers", counts.fullPrice],
+              ["Opted out of messages", counts.optedOut],
             ].map(([label, v]) => (
               <div key={label as string} className="rounded-lg border border-border p-3">
                 <div className="text-xs text-muted-foreground">{label}</div>

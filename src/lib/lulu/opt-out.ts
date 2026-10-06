@@ -38,13 +38,14 @@ export function classifyReply(text: string | null | undefined): KeywordIntent | 
   return null;
 }
 
+// Brand-neutral on purpose: offers from other brands will use the same opt-out.
 export const OPT_OUT_CONFIRMATION =
-  "You have been unsubscribed from LuLu Online offers. Reply START to subscribe again.\n" +
-  "تم إلغاء اشتراكك في عروض لولو أونلاين. أرسل START للاشتراك مجدداً.";
+  "You have been unsubscribed from online offers. Reply START to subscribe again.\n" +
+  "تم إلغاء اشتراكك في العروض الإلكترونية. أرسل START للاشتراك مجدداً.";
 
 export const OPT_IN_CONFIRMATION =
-  "You are subscribed to LuLu Online offers again. Reply STOP at any time to unsubscribe.\n" +
-  "تم تفعيل اشتراكك في عروض لولو أونلاين. أرسل STOP في أي وقت لإلغاء الاشتراك.";
+  "You are subscribed to online offers again. Reply STOP at any time to unsubscribe.\n" +
+  "تم تفعيل اشتراكك في العروض الإلكترونية. أرسل STOP في أي وقت لإلغاء الاشتراك.";
 
 /** Meta delivery status → LuLu campaign event type (null = not tracked). */
 export function statusToEvent(status: string | null | undefined): "DELIVERED" | "READ" | "FAILED" | null {
