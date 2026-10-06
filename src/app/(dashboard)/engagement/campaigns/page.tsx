@@ -24,6 +24,7 @@ interface CampaignRow {
   active: boolean;
   template_name_ar: string | null;
   template_name_en: string | null;
+  template_name_bilingual: string | null;
   test_phones: string[] | null;
 }
 
@@ -54,7 +55,7 @@ export default function CampaignsPage() {
     setLoading(true);
     const { data, error: err } = await createClient()
       .from("lulu_campaigns")
-      .select("id, campaign_code, name, campaign_type, rule_params, status, mode, active, template_name_ar, template_name_en, test_phones")
+      .select("id, campaign_code, name, campaign_type, rule_params, status, mode, active, template_name_ar, template_name_en, template_name_bilingual, test_phones")
       .eq("account_id", accountId)
       .order("priority");
     if (err) setError(err.message);

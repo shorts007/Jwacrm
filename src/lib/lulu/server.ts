@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { campaignFromRow, policyFromRow, type CampaignRow, type PolicyRow } from "./defaults";
 import type { DryRunProfileRow } from "./dry-run";
 import { DEFAULT_SEND_SETTINGS, type SendSettings } from "./sender";
+import { chooseTemplateKind, type TemplateChoiceKind } from "./messages";
 import type { CampaignConfig, ContactPolicy } from "./types";
 
 const PAGE = 1000;
@@ -46,13 +47,14 @@ export async function loadActiveProfiles(db: SupabaseClient, accountId: string):
 export interface LiveCampaign extends CampaignConfig {
   templateAr: string | null;
   templateEn: string | null;
+  templateBi: string | null;
 }
 
 /** Campaigns allowed to send to customers right now: Live switch on, mode LIVE, not paused/stopped. */
 export async function loadLiveCampaigns(db: SupabaseClient, accountId: string): Promise<LiveCampaign[]> {
   const { data, error } = await db
     .from("lulu_campaigns")
-    .select("id, campaign_code, name, campaign_type, rule_params, offer_id, active, mode, status, template_name_ar, template_name_en")
+    .select("id, campaign_code, name, campaign_type, rule_params, offer_id, active, mode, status, template_name_ar, template_name_en, template_name_bilingual")
     .eq("account_id", accountId)
     .eq("active", true)
     .eq("mode", "LIVE");
@@ -63,6 +65,7 @@ export async function loadLiveCampaigns(db: SupabaseClient, accountId: string): 
       ...campaignFromRow(r as unknown as CampaignRow),
       templateAr: (r.template_name_ar as string | null) ?? null,
       templateEn: (r.template_name_en as string | null) ?? null,
+      templateBi: (r.template_name_bilingual as string | null) ?? null,
     }));
 }
 
@@ -113,11 +116,32 @@ export async function loadApprovedTemplates(db: SupabaseClient, accountId: strin
   return map;
 }
 
-/** Template for the customer's language if approved, else the other language if approved. */
-export function chooseTemplate(c: LiveCampaign, language: string, approved: Map<string, ApprovedTemplate>) {
-  const ar = c.templateAr ? approved.get(c.templateAr) : undefined;
-  const en = c.templateEn ? approved.get(c.templateEn) : undefined;
-  return language.toLowerCase().startsWith("en") ? (en ?? ar ?? null) : (ar ?? en ?? null);
+/**
+ * Template to send: the customer's chosen language if approved, else the bilingual
+ * template, else the other language. No choice yet → bilingual first.
+ */
+export function chooseTemplate(
+  c: LiveCampaign,
+  preference: "ar" | "en" | null,
+  approved: Map<string, ApprovedTemplate>,
+): { template: ApprovedTemplate; kind: TemplateChoiceKind } | null {
+  const pick = chooseTemplateKind({ ar: c.templateAr, en: c.templateEn, bi: c.templateBi }, preference, (n) => approved.has(n));
+  return pick ? { template: approved.get(pick.name)!, kind: pick.kind } : null;
+}
+
+export const campaignTemplateNames = (c: LiveCampaign) =>
+  [c.templateAr, c.templateEn, c.templateBi].filter((n): n is string => !!n);
+
+/** Language the customer chose on WhatsApp (null = not chosen). */
+export async function loadLanguagePreference(db: SupabaseClient, accountId: string, digits: string): Promise<"ar" | "en" | null> {
+  const { data } = await db
+    .from("lulu_language_prefs")
+    .select("language")
+    .eq("account_id", accountId)
+    .eq("phone_digits", digits)
+    .maybeSingle();
+  const l = data?.language as string | undefined;
+  return l === "ar" || l === "en" ? l : null;
 }
 
 /**

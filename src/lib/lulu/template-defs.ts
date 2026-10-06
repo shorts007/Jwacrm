@@ -30,6 +30,28 @@ function def(
   };
 }
 
+const BI_FOOTER = "Reply STOP to opt out | للإلغاء أرسل STOP";
+const LANGUAGE_BUTTONS: TemplatePayload["buttons"] = [
+  { type: "QUICK_REPLY", text: "العربية" },
+  { type: "QUICK_REPLY", text: "English" },
+];
+
+/** Arabic block first, then English; the English block's variables continue the numbering. */
+function biDef(name: string, ar: string, en: string, samples: ("name" | "offer" | "expiry")[]): TemplatePayload {
+  const pick = { name: NAME, offer: OFFER, expiry: EXPIRY };
+  const shift = samples.length;
+  const enShifted = en.replace(/\{\{(\d+)\}\}/g, (_, d: string) => `{{${Number(d) + shift}}}`);
+  return {
+    name,
+    category: "Marketing",
+    language: "ar",
+    body_text: `${ar}\n\n${enShifted}`,
+    footer_text: BI_FOOTER,
+    buttons: LANGUAGE_BUTTONS,
+    sample_values: { body: [...samples.map((s) => pick[s].ar), ...samples.map((s) => pick[s].en)] },
+  };
+}
+
 export const LULU_TEMPLATE_DEFS: TemplatePayload[] = [
   def(
     "lulu_inactive_15_en",
@@ -92,3 +114,21 @@ export const LULU_TEMPLATE_DEFS: TemplatePayload[] = [
     ["name", "offer"],
   ),
 ];
+
+/** Bilingual versions (sent to customers who have not chosen a language). */
+export const LULU_BILINGUAL_TEMPLATE_DEFS: TemplatePayload[] = (
+  [
+    ["lulu_inactive_15", ["name"]],
+    ["lulu_winback_30", ["name", "offer", "expiry"]],
+    ["lulu_lost_60", ["name"]],
+    ["lulu_second_order", ["name"]],
+    ["lulu_vip_care", ["name", "offer"]],
+  ] as const
+).map(([base, samples]) => {
+  const ar = LULU_TEMPLATE_DEFS.find((d) => d.name === `${base}_ar`)!.body_text;
+  const en = LULU_TEMPLATE_DEFS.find((d) => d.name === `${base}_en`)!.body_text;
+  return biDef(`${base}_bi`, ar, en, [...samples]);
+});
+
+export const ALL_LULU_TEMPLATE_DEFS: TemplatePayload[] = [...LULU_TEMPLATE_DEFS, ...LULU_BILINGUAL_TEMPLATE_DEFS];
+

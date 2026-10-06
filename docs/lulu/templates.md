@@ -85,3 +85,17 @@ Variables: `{{1}}` name, `{{2}}` offer — samples: `Ahmed`, `free delivery` / `
 
 ## Opt-out is a hard gate before any customer send
 The footer promises that replying STOP unsubscribes. Handling that reply (STOP / stop / ايقاف / إيقاف / الغاء / إلغاء → mark the customer opted out, tag it, never message again) must be live **before** the first customer campaign. It is the next build step after test mode.
+
+---
+
+## Bilingual templates (sent until the customer chooses a language)
+
+`lulu_<campaign>_bi` — language **Arabic (ar)**, category Marketing. Body = the Arabic text, a blank line, then the English
+text; the English block's variables continue the numbering (e.g. win-back: `{{1}}..{{3}}` Arabic, `{{4}}..{{6}}` English).
+Footer `Reply STOP to opt out | للإلغاء أرسل STOP`. Two **quick-reply buttons: `العربية` and `English`**.
+
+Tapping a button (or sending `English` / `EN` / `انجليزي` / `العربية` / `عربي` / `Arabic` at any time) saves the customer's
+language; from then on they receive only that language's template, and get a short confirmation. STOP still works the same.
+
+Created automatically by **Campaigns → Step 1 → Create missing in Meta** (15 templates in total). Note: Meta may
+occasionally reject a template whose text mixes two languages; if one is rejected, send me the reason.

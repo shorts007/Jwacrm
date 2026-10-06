@@ -140,6 +140,21 @@ export async function POST(request: Request) {
     }
     for (const r of rows) if (stopDigits.has(r.mobile.replace(/\D/g, ''))) r.marketing_opt_in = false;
 
+    // Language the customer chose on WhatsApp beats the feed's default.
+    for (let i = 0; i < rows.length; i += LOOKUP_CHUNK) {
+      const digits = rows.slice(i, i + LOOKUP_CHUNK).map((r) => r.mobile.replace(/\D/g, ''));
+      const { data } = await db
+        .from('lulu_language_prefs')
+        .select('phone_digits, language')
+        .eq('account_id', accountId)
+        .in('phone_digits', digits);
+      const pref = new Map((data ?? []).map((p) => [p.phone_digits as string, p.language as string]));
+      for (const r of rows.slice(i, i + LOOKUP_CHUNK)) {
+        const l = pref.get(r.mobile.replace(/\D/g, ''));
+        if (l) r.language = l;
+      }
+    }
+
     // 3. Link to WACRM contacts by normalized phone (digits-only column).
     const contactByDigits = new Map<string, string>();
     const digitsOf = (mobile: string) => normalizePhone(mobile);

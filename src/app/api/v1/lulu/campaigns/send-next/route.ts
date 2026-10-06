@@ -18,12 +18,14 @@ import { requireApiKey } from '@/lib/auth/api-context';
 import { ok, toApiErrorResponse } from '@/lib/api/v1/respond';
 import { isQuietNow } from '@/lib/lulu/contact-policy';
 import { profileFromRow, type DryRunProfileRow } from '@/lib/lulu/dry-run';
-import { buildTemplateParams } from '@/lib/lulu/messages';
+import { buildBilingualParams, buildTemplateParams } from '@/lib/lulu/messages';
 import { decideNextBestAction } from '@/lib/lulu/next-best-action';
 import { gapBeforeNext, isPauseWorthyError, riyadhDayStart } from '@/lib/lulu/sender';
 import {
   PROFILE_COLUMNS,
+  campaignTemplateNames,
   chooseTemplate,
+  loadLanguagePreference,
   liveGates,
   loadApprovedTemplates,
   loadLiveCampaigns,
@@ -137,17 +139,20 @@ export async function POST(request: Request) {
     });
     if (!decision.action) return skip(decision.skipped[0]?.reason ?? 'no longer eligible');
 
-    const approved = await loadApprovedTemplates(db, accountId, [campaign.templateAr, campaign.templateEn].filter((n): n is string => !!n));
-    const template = chooseTemplate(campaign, profile.language, approved);
-    if (!template) {
+    const approved = await loadApprovedTemplates(db, accountId, campaignTemplateNames(campaign));
+    const preference = await loadLanguagePreference(db, accountId, digits);
+    const choice = chooseTemplate(campaign, preference, approved);
+    if (!choice) {
       await finish('FAILED', { last_error: 'no approved template' });
       return ok({ sent: 0, done: false, remaining: await remainingCount(), next_wait_seconds: 1, status: 'FAILED', reason: 'no approved template' });
     }
-    const wanted = buildTemplateParams(campaign.type, {
-      name: profile.name,
-      language: template.lang,
-      expiryDate: new Date(now.getTime() + 7 * DAY).toISOString().slice(0, 10),
-    });
+    const template = choice.template;
+    const expiryDate = new Date(now.getTime() + 7 * DAY).toISOString().slice(0, 10);
+    // No language chosen yet → bilingual template (AR block + EN block, with العربية / English buttons).
+    const wanted =
+      choice.kind === 'bi'
+        ? buildBilingualParams(campaign.type, { name: profile.name, expiryDate })
+        : buildTemplateParams(campaign.type, { name: profile.name, language: choice.kind, expiryDate });
     if (template.varCount > wanted.length) {
       await finish('FAILED', { last_error: `template ${template.name} needs ${template.varCount} variables` });
       return ok({ sent: 0, done: false, remaining: await remainingCount(), next_wait_seconds: 1, status: 'FAILED', reason: 'template variable mismatch' });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { OPT_IN_CONFIRMATION, OPT_OUT_CONFIRMATION, classifyReply, normalizeReply, statusToEvent } from "./index";
+import { OPT_IN_CONFIRMATION, OPT_OUT_CONFIRMATION, chooseTemplateKind, classifyLanguage, classifyReply, normalizeReply, statusToEvent } from "./index";
 
 describe("classifyReply", () => {
   it.each([
@@ -35,5 +35,26 @@ describe("confirmation texts", () => {
       expect(msg).toMatch(/online offers/);
       expect(msg).toMatch(/العروض الإلكترونية/);
     }
+  });
+});
+
+describe("language preference", () => {
+  it.each([
+    ["English", "en"], ["english", "en"], ["EN", "en"], ["انجليزي", "en"], ["الإنجليزية", "en"],
+    ["العربية", "ar"], ["Arabic", "ar"], ["عربي", "ar"], ["AR", "ar"],
+  ])("%s → %s", (t, l) => expect(classifyLanguage(t)).toBe(l));
+  it("ignores sentences and STOP", () => {
+    expect(classifyLanguage("can you reply in english please")).toBeNull();
+    expect(classifyLanguage("STOP")).toBeNull();
+  });
+  it("chooses bilingual until the customer picks a language", () => {
+    const names = { ar: "x_ar", en: "x_en", bi: "x_bi" };
+    expect(chooseTemplateKind(names, null)).toEqual({ kind: "bi", name: "x_bi" });
+    expect(chooseTemplateKind(names, "en")).toEqual({ kind: "en", name: "x_en" });
+    expect(chooseTemplateKind(names, "ar")).toEqual({ kind: "ar", name: "x_ar" });
+    // only approved ones count
+    expect(chooseTemplateKind(names, "en", (n) => n !== "x_en")).toEqual({ kind: "bi", name: "x_bi" });
+    expect(chooseTemplateKind(names, null, (n) => n === "x_ar")).toEqual({ kind: "ar", name: "x_ar" });
+    expect(chooseTemplateKind({}, null)).toBeNull();
   });
 });

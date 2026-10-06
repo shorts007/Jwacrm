@@ -13,6 +13,7 @@ import { requireApiKey } from '@/lib/auth/api-context';
 import { ok, toApiErrorResponse } from '@/lib/api/v1/respond';
 import { gapBeforeNext, planSends, riyadhDayStart, totalDuration } from '@/lib/lulu/sender';
 import {
+  campaignTemplateNames,
   chooseTemplate,
   liveGates,
   loadActiveProfiles,
@@ -40,9 +41,9 @@ export async function POST(request: Request) {
     const approved = await loadApprovedTemplates(
       db,
       accountId,
-      live.flatMap((c) => [c.templateAr, c.templateEn]).filter((n): n is string => !!n)
+      live.flatMap(campaignTemplateNames)
     );
-    const sendable = live.filter((c) => chooseTemplate(c, 'ar', approved));
+    const sendable = live.filter((c) => chooseTemplate(c, null, approved));
     for (const c of live) if (!sendable.includes(c)) blocked.push(`${c.code}: no APPROVED template set.`);
     if (blocked.length > 0 && sendable.length === 0) return ok({ queued: 0, blocked });
     if (blocked.some((b) => !b.includes(': no APPROVED template'))) return ok({ queued: 0, blocked });

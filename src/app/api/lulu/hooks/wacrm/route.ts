@@ -6,7 +6,8 @@
 // is modified. Every delivery is verified with the endpoint's HMAC secret
 // (X-Wacrm-Signature), looked up via X-Wacrm-Webhook-Id.
 //
-//   message.received        STOP / إيقاف …  → opt the phone out (lulu_opt_outs +
+//   message.received        English / العربية (button or typed) → language preference
+//                           STOP / إيقاف …  → opt the phone out (lulu_opt_outs +
 //                                              profile marketing_opt_in = false), confirm
 //                           START / ابدأ …   → opt back in, confirm
 //   message.status_updated  delivered / read / failed for messages the LuLu
@@ -21,8 +22,10 @@ import { verifySignatureHeader } from '@/lib/webhooks/sign';
 import { decrypt } from '@/lib/whatsapp/encryption';
 import { sendMessageToConversation } from '@/lib/whatsapp/send-message';
 import {
+  LANGUAGE_CONFIRMATION,
   OPT_IN_CONFIRMATION,
   OPT_OUT_CONFIRMATION,
+  classifyLanguage,
   classifyReply,
   statusToEvent,
 } from '@/lib/lulu/opt-out';
@@ -94,8 +97,9 @@ async function log(db: Db, accountId: string, event: string | null, outcome: str
 async function handleInbound(db: Db, accountId: string, data: Record<string, unknown>) {
   const text = typeof data.text === 'string' ? data.text : null;
   const intent = classifyReply(text);
-  if (!intent || typeof data.contact_id !== 'string') {
-    await log(db, accountId, 'message.received', 'ignored', `not a STOP/START reply: "${(text ?? '').slice(0, 40)}"`);
+  const language = intent ? null : classifyLanguage(text);
+  if ((!intent && !language) || typeof data.contact_id !== 'string') {
+    await log(db, accountId, 'message.received', 'ignored', `not a STOP/START/language reply: "${(text ?? '').slice(0, 40)}"`);
     return;
   }
 
@@ -111,6 +115,11 @@ async function handleInbound(db: Db, accountId: string, data: Record<string, unk
     return;
   }
   const mobile = `+${digits}`;
+
+  if (language) {
+    await setLanguage(db, accountId, digits, language, typeof data.conversation_id === 'string' ? data.conversation_id : null);
+    return;
+  }
 
   const { data: profile } = await db
     .from('lulu_customer_profiles')
@@ -153,6 +162,27 @@ async function handleInbound(db: Db, accountId: string, data: Record<string, unk
       console.error('[lulu/hooks/wacrm] confirmation send failed:', err);
       await log(db, accountId, 'message.received', 'confirmation_failed', err instanceof Error ? err.message : String(err));
     }
+  }
+}
+
+async function setLanguage(db: Db, accountId: string, digits: string, language: 'ar' | 'en', conversationId: string | null) {
+  const { error } = await db.from('lulu_language_prefs').upsert(
+    { account_id: accountId, phone_digits: digits, language, source: 'whatsapp_reply', set_at: new Date().toISOString() },
+    { onConflict: 'account_id,phone_digits' }
+  );
+  if (error) throw new Error(`language save failed: ${error.message}`);
+  await db.from('lulu_customer_profiles').update({ language }).eq('account_id', accountId).eq('mobile', `+${digits}`);
+  await log(db, accountId, 'message.received', 'language_set', `+${digits} → ${language}`);
+  if (!conversationId) return;
+  try {
+    await sendMessageToConversation(db, accountId, {
+      conversationId,
+      messageType: 'text',
+      contentText: LANGUAGE_CONFIRMATION[language],
+    });
+    await log(db, accountId, 'message.received', 'confirmation_sent', `+${digits} language`);
+  } catch (err) {
+    await log(db, accountId, 'message.received', 'confirmation_failed', err instanceof Error ? err.message : String(err));
   }
 }
 

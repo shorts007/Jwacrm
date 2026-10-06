@@ -18,6 +18,7 @@ export interface LiveCampaignRow {
   active: boolean;
   template_name_ar: string | null;
   template_name_en: string | null;
+  template_name_bilingual?: string | null;
 }
 
 interface ActionRow {
@@ -112,7 +113,8 @@ export function LivePanel({ accountId, campaigns, onChanged }: { accountId: stri
     if (live) {
       const ok = window.confirm(
         `Make "${c.name}" LIVE?\n\nReal customers will receive WhatsApp messages (max ${settings.dailyCap}/day) the next time the daily sender runs.\n` +
-          `Templates: AR ${c.template_name_ar ?? "—"} · EN ${c.template_name_en ?? "—"}\nThe campaign's Live switch must also be On.`,
+          `Templates: both ${c.template_name_bilingual ?? "—"} · AR ${c.template_name_ar ?? "—"} · EN ${c.template_name_en ?? "—"}\n` +
+          `Customers who haven't chosen a language get the bilingual message.\nThe campaign's Live switch must also be On.`,
       );
       if (!ok) return;
     }
@@ -228,7 +230,7 @@ export function LivePanel({ accountId, campaigns, onChanged }: { accountId: stri
                   {c.mode === "LIVE" ? (
                     <button type="button" className={btn} onClick={() => void setMode(c, false)}>Back to dry run</button>
                   ) : (
-                    <button type="button" className={btn} disabled={!c.active || (!c.template_name_ar && !c.template_name_en)}
+                    <button type="button" className={btn} disabled={!c.active || (!c.template_name_ar && !c.template_name_en && !c.template_name_bilingual)}
                       title={!c.active ? "Turn the Live switch On first" : undefined} onClick={() => void setMode(c, true)}>
                       Make LIVE
                     </button>

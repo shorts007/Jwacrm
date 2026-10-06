@@ -47,6 +47,28 @@ export const OPT_IN_CONFIRMATION =
   "You are subscribed to online offers again. Reply STOP at any time to unsubscribe.\n" +
   "تم تفعيل اشتراكك في العروض الإلكترونية. أرسل STOP في أي وقت لإلغاء الاشتراك.";
 
+const LANG_EN = new Set(["english", "en", "eng", "انجليزي", "انجليزيه", "الانجليزيه", "اللغه الانجليزيه"].map(normalizeReply));
+const LANG_AR = new Set(["arabic", "ar", "عربي", "عربيه", "العربيه", "اللغه العربيه"].map(normalizeReply));
+
+/**
+ * Language choice from a reply: the quick-reply buttons on bilingual messages
+ * ("العربية" / "English") or a keyword the customer types at any time.
+ * Whole-message match only, like STOP.
+ */
+export function classifyLanguage(text: string | null | undefined): "ar" | "en" | null {
+  if (!text) return null;
+  const t = normalizeReply(text);
+  if (!t || t.length > 30) return null;
+  if (LANG_EN.has(t)) return "en";
+  if (LANG_AR.has(t)) return "ar";
+  return null;
+}
+
+export const LANGUAGE_CONFIRMATION: Record<"ar" | "en", string> = {
+  en: "Done — we will message you in English from now on. Send العربية any time to switch to Arabic.",
+  ar: "تم — سنراسلك باللغة العربية من الآن. أرسل English في أي وقت للتبديل إلى الإنجليزية.",
+};
+
 /** Meta delivery status → LuLu campaign event type (null = not tracked). */
 export function statusToEvent(status: string | null | undefined): "DELIVERED" | "READ" | "FAILED" | null {
   switch ((status ?? "").toLowerCase()) {
