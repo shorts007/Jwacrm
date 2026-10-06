@@ -329,5 +329,22 @@ SELECT DATE_TRUNC(DATE(created_at), MONTH) AS month, job_state, COUNT(*) AS item
 FROM `myecomlulu.jackpot.instaleap_raw`
 GROUP BY month, job_state ORDER BY month, item_rows DESC;
 
+-- 29) Replenishable products: bought by many, re-bought by many, and their typical gap (days). Jeddah picking data.
+WITH o AS (
+  SELECT CAST(number AS STRING) AS n, CAST(shipping_address_phone_number AS STRING) AS phone, DATE(date_placed, 'Asia/Riyadh') AS d
+  FROM `myecomlulu.jackpot.ksa_jackpot` WHERE LOWER(status) = 'delivered' AND number IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY number ORDER BY date_placed DESC) = 1
+),
+i AS (
+  SELECT DISTINCT REGEXP_EXTRACT(job_number, r'^Lulu-(\d+)') AS n, TRIM(name) AS name
+  FROM `myecomlulu.jackpot.instaleap_raw` WHERE name IS NOT NULL AND NOT IFNULL(is_substitute, FALSE)
+),
+cd AS (SELECT DISTINCT o.phone, i.name, o.d FROM o JOIN i USING (n)),
+g AS (SELECT phone, name, DATE_DIFF(d, LAG(d) OVER (PARTITION BY phone, name ORDER BY d), DAY) AS gap FROM cd),
+ci AS (SELECT phone, name, COUNT(*) AS times, APPROX_QUANTILES(gap, 100 IGNORE NULLS)[SAFE_OFFSET(50)] AS own_gap FROM g GROUP BY phone, name)
+SELECT name, COUNT(*) AS buyers, ROUND(100 * COUNTIF(times >= 2) / COUNT(*), 1) AS pct_rebought,
+       APPROX_QUANTILES(own_gap, 100 IGNORE NULLS)[SAFE_OFFSET(50)] AS typical_gap_days
+FROM ci GROUP BY name HAVING COUNT(*) >= 50 ORDER BY pct_rebought DESC LIMIT 40;
+
 -- Supabase (SQL editor, not BigQuery): how many profiles are stale / when were they last written?
 --   select active, date_trunc('hour', synced_at) as last_written, count(*) from lulu_customer_profiles group by 1, 2 order by 2 desc;

@@ -44,3 +44,15 @@ rate-limit / block errors (131048, 131056, 80007, 130429, 368, 131031) or 5 fail
 - Same safeguards as every campaign: test first (Step 2), Live switch + Make LIVE (Step 3), daily cap & pacing, STOP list,
   frequency limits, holdout, results page. Skipped automatically after valid-until or if image/text is missing.
 - Not Meta "catalog" messages: those require a product catalogue connected in Meta Commerce Manager.
+
+## V2 personalisation — Replenishment (§44) & Buy Again (§45)
+- BigQuery `customer_master.sql` → `usual_items`: up to 5 *replenishable* products per customer from picking data
+  (bought 2+ times; product bought by ≥ 20 customers and re-bought by ≥ 20 % of them; ≤ SAR 150 so phones/appliances are
+  excluded) with times bought, last bought and usual gap (own median after 3+ purchases, else the product's typical gap).
+- **Replenishment**: an item is due from 0.9× its gap until 2× (after that the habit is treated as lapsed); message names up to
+  3 due products: "time to restock? Your usual {{items}} may be running low". Priority class PERSONALIZED_OFFER.
+- **Buy Again**: AT_RISK customers with 2+ usual items: "your favourites are waiting: {{items}}". Class WINBACK with
+  priority 45, so it replaces the generic 15-day message when we know their items (customers without item history still get it).
+- Templates `restock_ar/_en/_bi`, `buy_again_ar/_en/_bi` (brand-neutral) — created from Campaigns → Step 1.
+- Customer 360 shows each usual item with "due now / overdue / in N days / habit lapsed".
+- Limits: item history only from Apr 2026 and only for orders matched to picking data; product names are the catalogue's English names.

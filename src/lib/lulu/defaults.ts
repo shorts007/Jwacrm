@@ -12,6 +12,8 @@ export const PRIORITY_CLASS_BY_TYPE: Record<CampaignType, PriorityClass> = {
   VIP_PROTECTION: "VIP",
   NEW_OFFER: "GENERAL_PROMOTION",
   SELECTED_CUSTOMER_OFFER: "PERSONALIZED_OFFER",
+  REPLENISHMENT: "PERSONALIZED_OFFER",
+  BUY_AGAIN: "WINBACK", // a personal version of the at-risk reminder; outranks INACTIVE_15 via priority 45 < 50
 };
 
 /** Campaigns that can run on the order table alone (no birthday / item data needed). */
@@ -21,6 +23,9 @@ export const DEFAULT_CAMPAIGN_ROWS = [
   { campaign_code: "LOST_60", name: "60-Day Lost Customer", campaign_type: "LOST_60", rule_params: { lostDays: 60 }, priority: 60 },
   { campaign_code: "SECOND_ORDER", name: "Second Order", campaign_type: "SECOND_ORDER", rule_params: { secondOrderAfterDays: 7 }, priority: 40 },
   { campaign_code: "VIP_PROTECTION", name: "VIP Protection", campaign_type: "VIP_PROTECTION", rule_params: {}, priority: 10 },
+  // V2 personalisation (item history from picking data)
+  { campaign_code: "REPLENISHMENT", name: "Replenishment", campaign_type: "REPLENISHMENT", rule_params: { dueRatio: 0.9, overdueRatio: 2, maxItems: 3 }, priority: 35 },
+  { campaign_code: "BUY_AGAIN", name: "Buy Again", campaign_type: "BUY_AGAIN", rule_params: { stages: ["AT_RISK"], minItems: 2 }, priority: 45 },
 ] as const;
 
 export interface CampaignRow {
@@ -31,6 +36,7 @@ export interface CampaignRow {
   rule_params: Record<string, unknown> | null;
   offer_id: string | null;
   active: boolean;
+  priority?: number | null;
 }
 
 export function campaignFromRow(r: CampaignRow): CampaignConfig {
@@ -39,6 +45,7 @@ export function campaignFromRow(r: CampaignRow): CampaignConfig {
     id: r.id,
     code: r.campaign_code,
     name: r.name,
+    rank: r.priority ?? undefined,
     type: r.campaign_type,
     priorityClass: params.priority_class ?? PRIORITY_CLASS_BY_TYPE[r.campaign_type] ?? "GENERAL_PROMOTION",
     active: r.active,

@@ -12,7 +12,7 @@ import type { CampaignConfig, ContactPolicy } from "./types";
 const PAGE = 1000;
 const PARALLEL = 8;
 export const PROFILE_COLUMNS =
-  "customer_id, mobile, name, language, birthday, last_order_date, total_orders, total_sales, median_interval_days, vip_flag, marketing_opt_in, active_complaint, suspect_reason, preferred_store, price_sensitivity, customer_segment, preferred_store_id";
+  "customer_id, mobile, name, language, birthday, last_order_date, total_orders, total_sales, median_interval_days, vip_flag, marketing_opt_in, active_complaint, suspect_reason, preferred_store, price_sensitivity, customer_segment, preferred_store_id, usual_items";
 
 /** All ACTIVE synced profiles of the account (paged; PostgREST returns ≤1000 rows per call). */
 export async function loadActiveProfiles(db: SupabaseClient, accountId: string): Promise<DryRunProfileRow[]> {
@@ -61,7 +61,7 @@ export interface LiveCampaign extends CampaignConfig {
 export async function loadLiveCampaigns(db: SupabaseClient, accountId: string): Promise<LiveCampaign[]> {
   const { data, error } = await db
     .from("lulu_campaigns")
-    .select("id, campaign_code, name, campaign_type, rule_params, offer_id, active, mode, status, template_name_ar, template_name_en, template_name_bilingual, holdout_pct, attribution_days, promo_image_url, promo_text_ar, promo_text_en, promo_valid_until")
+    .select("id, campaign_code, name, campaign_type, rule_params, offer_id, active, mode, status, priority, template_name_ar, template_name_en, template_name_bilingual, holdout_pct, attribution_days, promo_image_url, promo_text_ar, promo_text_en, promo_valid_until")
     .eq("account_id", accountId)
     .eq("active", true)
     .eq("mode", "LIVE");

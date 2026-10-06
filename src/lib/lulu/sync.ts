@@ -1,6 +1,6 @@
 import { normalizeMobile } from "./phone";
 import { lifecycleStage } from "./lifecycle";
-import type { CustomerProfile, LifecycleStage } from "./types";
+import type { CustomerProfile, LifecycleStage, UsualItem } from "./types";
 
 /** Max customers per sync request (keeps well inside the 120 req/min key limit). */
 export const MAX_SYNC_BATCH = 500;
@@ -52,6 +52,7 @@ export interface ProfileRow {
   discount_order_share: number | null;
   avg_discount_pct: number | null;
   total_discount: number | null;
+  usual_items: UsualItem[] | null;
 }
 
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
@@ -134,6 +135,7 @@ export function parseCustomer(raw: unknown, now: Date): ProfileRow | string {
     discount_order_share: clamp01(num(r.discount_order_share)),
     avg_discount_pct: num(r.avg_discount_pct),
     total_discount: num(r.total_discount),
+    usual_items: parseUsualItems(r.usual_items),
   };
 
   const asProfile: CustomerProfile = {
@@ -195,4 +197,30 @@ export function pruneVerdict(
     };
   }
   return { ok: true };
+}
+
+/** BigQuery sends usual_items as a JSON string (TO_JSON_STRING) — accept string or array, keep valid entries (max 5). */
+export function parseUsualItems(v: unknown): UsualItem[] | null {
+  let arr: unknown = v;
+  if (typeof v === "string") {
+    try {
+      arr = JSON.parse(v);
+    } catch {
+      return null;
+    }
+  }
+  if (!Array.isArray(arr)) return null;
+  const out: UsualItem[] = [];
+  for (const x of arr) {
+    if (!x || typeof x !== "object") continue;
+    const o = x as Record<string, unknown>;
+    const name = typeof o.name === "string" ? o.name.trim().slice(0, 80) : "";
+    const last = typeof o.last === "string" && /^\d{4}-\d{2}-\d{2}$/.test(o.last) ? o.last : null;
+    const every = Number(o.every);
+    const times = Number(o.times);
+    if (!name || !last || !Number.isFinite(every) || every <= 0) continue;
+    out.push({ name, last, every: Math.round(every), times: Number.isFinite(times) ? Math.round(times) : 0 });
+    if (out.length === 5) break;
+  }
+  return out.length ? out : null;
 }

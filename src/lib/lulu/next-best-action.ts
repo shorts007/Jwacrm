@@ -59,7 +59,12 @@ export function decideNextBestAction(input: DecideInput): DecisionResult {
     const i = policy.priorityOrder.indexOf(c.priorityClass);
     return i === -1 ? Number.MAX_SAFE_INTEGER : i;
   };
-  eligible.sort((a, b) => rank(a.campaign) - rank(b.campaign) || a.campaign.code.localeCompare(b.campaign.code));
+  eligible.sort(
+    (a, b) =>
+      rank(a.campaign) - rank(b.campaign) ||
+      (a.campaign.rank ?? 100) - (b.campaign.rank ?? 100) ||
+      a.campaign.code.localeCompare(b.campaign.code),
+  );
 
   const [best, ...losers] = eligible;
   for (const l of losers) skipped.push({ campaignCode: l.campaign.code, reason: "lower_priority" });

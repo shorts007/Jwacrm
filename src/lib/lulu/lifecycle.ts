@@ -1,4 +1,4 @@
-import type { CampaignConfig, CustomerProfile, LifecycleStage, PromoAudience } from "./types";
+import type { CampaignConfig, CustomerProfile, LifecycleStage, PromoAudience, UsualItem } from "./types";
 
 const MS_DAY = 86_400_000;
 
@@ -169,6 +169,24 @@ export function matchingCampaigns(
         if (p.vipFlag && (stage === "AT_RISK" || stage === "DORMANT"))
           out.push({ campaign: c, reason: `VIP inactive (${gap} days)` });
         break;
+      case "REPLENISHMENT": {
+        const due = dueItems(p.usualItems, now, c.params.dueRatio, c.params.overdueRatio).slice(0, c.params.maxItems ?? 3);
+        if (due.length) {
+          const first = due[0];
+          out.push({
+            campaign: c,
+            reason: `Restock due: ${first.name} (usually every ${first.every} d, last ${daysSince(first.last, now)} d ago)${due.length > 1 ? ` +${due.length - 1} more` : ""}`,
+          });
+        }
+        break;
+      }
+      case "BUY_AGAIN": {
+        const stages = c.params.stages?.length ? c.params.stages : (["AT_RISK"] as LifecycleStage[]);
+        const items = (p.usualItems ?? []).filter((i) => i.times >= 2);
+        if (stages.includes(stage) && items.length >= (c.params.minItems ?? 2))
+          out.push({ campaign: c, reason: `${stage === "AT_RISK" ? "At risk" : stage} — usual items: ${items.slice(0, 2).map((i) => i.name).join(", ")}` });
+        break;
+      }
       case "NEW_OFFER":
         if (audienceMatches(c.params.audience, p, stage, gap)) out.push({ campaign: c, reason: `Promotion: ${c.name ?? c.code}` });
         break;
@@ -206,4 +224,17 @@ export function audienceMatches(
   if (a.minOrders && p.totalOrders < a.minOrders) return false;
   if (a.orderedWithinDays && (gap === null || gap > a.orderedWithinDays)) return false;
   return true;
+}
+
+/**
+ * Items whose personal restock moment has come: bought `every` days apart, last bought at least
+ * dueRatio × every days ago but not more than overdueRatio × every (after that the habit is probably gone).
+ * Most overdue first.
+ */
+export function dueItems(items: UsualItem[] | undefined, now: Date, dueRatio = 0.9, overdueRatio = 2): UsualItem[] {
+  return (items ?? [])
+    .map((i) => ({ i, d: daysSince(i.last, now) }))
+    .filter(({ i, d }) => i.every > 0 && d !== null && d >= dueRatio * i.every && d <= overdueRatio * i.every)
+    .sort((a, b) => b.d! / b.i.every - a.d! / a.i.every)
+    .map(({ i }) => i);
 }

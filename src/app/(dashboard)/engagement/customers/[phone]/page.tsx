@@ -134,6 +134,38 @@ export default function Customer360Page() {
           </div>
 
           <div className={card}>
+            <h2 className="mb-2 text-sm font-semibold">Usual items &amp; restock timing</h2>
+            {d.items.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No repeat products found (needs 2+ purchases of a replenishable item in the picking data, Apr 2026+).</p>
+            ) : (
+              <table className="w-full text-left text-sm">
+                <thead className="text-xs text-muted-foreground">
+                  <tr>
+                    <th className="px-2 py-1 font-medium">Product</th>
+                    <th className="px-2 py-1 text-right font-medium">Times bought</th>
+                    <th className="px-2 py-1 font-medium">Last bought</th>
+                    <th className="px-2 py-1 text-right font-medium">Usually every</th>
+                    <th className="px-2 py-1 font-medium">Restock</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {d.items.map((i) => (
+                    <tr key={i.name} className="border-t border-border">
+                      <td className="px-2 py-1">{i.name}</td>
+                      <td className="px-2 py-1 text-right tabular-nums">{i.times}</td>
+                      <td className="px-2 py-1 text-xs">{i.last}</td>
+                      <td className="px-2 py-1 text-right text-xs">{i.every} days</td>
+                      <td className={`px-2 py-1 text-xs ${i.status === "due" ? "text-emerald-600" : i.status === "overdue" ? "text-amber-600" : "text-muted-foreground"}`}>
+                        {i.status === "ok" ? `in ${i.dueInDays} days` : i.status === "due" ? "due now" : i.status === "overdue" ? `overdue ${-i.dueInDays} days` : "habit lapsed"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div className={card}>
             <h2 className="mb-2 text-sm font-semibold">LuLu messages &amp; results</h2>
             {d.touches.length === 0 ? (
               <p className="text-sm text-muted-foreground">No campaign messages yet.</p>

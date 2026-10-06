@@ -25,7 +25,7 @@ export const maxDuration = 60;
 const PAGE = 1000;
 const PARALLEL = 8;
 const COLUMNS =
-  'customer_id, mobile, name, language, birthday, last_order_date, total_orders, total_sales, median_interval_days, vip_flag, marketing_opt_in, active_complaint, suspect_reason, preferred_store, price_sensitivity';
+  'customer_id, mobile, name, language, birthday, last_order_date, total_orders, total_sales, median_interval_days, vip_flag, marketing_opt_in, active_complaint, suspect_reason, preferred_store, price_sensitivity, customer_segment, preferred_store_id, usual_items';
 
 export async function POST() {
   try {
@@ -35,7 +35,7 @@ export async function POST() {
 
     const [{ data: campaignRows, error: cErr }, { data: policyRow }, { data: syncRows }, countRes] =
       await Promise.all([
-        db.from('lulu_campaigns').select('id, campaign_code, name, campaign_type, rule_params, offer_id, active').eq('account_id', accountId),
+        db.from('lulu_campaigns').select('id, campaign_code, name, campaign_type, rule_params, offer_id, active, priority').eq('account_id', accountId),
         db.from('lulu_contact_policy').select('*').eq('account_id', accountId).maybeSingle(),
         db
           .from('lulu_customer_sync_log')
