@@ -33,6 +33,7 @@ import {
   loadApprovedTemplates,
   loadLiveCampaigns,
   loadPolicyAndSettings,
+  promoBlockReason,
 } from '@/lib/lulu/server';
 import type { PastSend } from '@/lib/lulu/types';
 import { resolveConversationByPhone } from '@/lib/whatsapp/resolve-conversation';
@@ -142,6 +143,9 @@ export async function POST(request: Request) {
     });
     if (!decision.action) return skip(decision.skipped[0]?.reason ?? 'no longer eligible');
 
+    const promoWhy = promoBlockReason(campaign, now);
+    if (promoWhy) return skip(promoWhy);
+
     // Offer campaigns: the offer must still be usable (active, in date, budget left) and fit this customer.
     let offer: Offer | null = null;
     if (campaignNeedsOffer(campaign.type)) {
@@ -165,12 +169,18 @@ export async function POST(request: Request) {
       return ok({ sent: 0, done: false, remaining: await remainingCount(), next_wait_seconds: 1, status: 'FAILED', reason: 'no approved template' });
     }
     const template = choice.template;
-    const expiryDate = offer ? offerExpiry(offer, now) : new Date(now.getTime() + 7 * DAY).toISOString().slice(0, 10);
+    const isPromo = campaign.type === 'NEW_OFFER';
+    const expiryDate = isPromo
+      ? campaign.promoValidUntil!
+      : offer
+        ? offerExpiry(offer, now)
+        : new Date(now.getTime() + 7 * DAY).toISOString().slice(0, 10);
     // No language chosen yet → bilingual template (AR block + EN block, with العربية / English buttons).
     const wanted = buildParamsForKind(choice.kind, campaign.type, {
       name: profile.name,
       expiryDate,
       offer: offer ? { ar: offerText(offer, 'ar'), en: offerText(offer, 'en') } : null,
+      promo: isPromo ? { ar: campaign.promoTextAr ?? '', en: campaign.promoTextEn ?? '' } : null,
     });
     if (template.varCount > wanted.length) {
       await finish('FAILED', { last_error: `template ${template.name} needs ${template.varCount} variables` });
@@ -186,6 +196,8 @@ export async function POST(request: Request) {
         templateName: template.name,
         templateLanguage: template.language,
         templateParams: params,
+        // Promotions: this promotion's own image replaces the template's sample header image.
+        templateMessageParams: isPromo ? { body: params, headerMediaUrl: campaign.promoImageUrl! } : undefined,
       });
       await finish('SENT', {
         sent_at: new Date().toISOString(),

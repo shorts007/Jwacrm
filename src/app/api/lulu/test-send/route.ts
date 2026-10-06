@@ -44,6 +44,10 @@ interface CampaignRow {
   template_name_bilingual: string | null;
   test_phones: string[] | null;
   offer_id: string | null;
+  promo_image_url: string | null;
+  promo_text_ar: string | null;
+  promo_text_en: string | null;
+  promo_valid_until: string | null;
 }
 
 export async function POST(request: Request) {
@@ -64,7 +68,7 @@ export async function POST(request: Request) {
 
     const { data: campaign, error } = await ctx.supabase
       .from('lulu_campaigns')
-      .select('id, campaign_code, campaign_type, template_name_ar, template_name_en, template_name_bilingual, test_phones, offer_id')
+      .select('id, campaign_code, campaign_type, template_name_ar, template_name_en, template_name_bilingual, test_phones, offer_id, promo_image_url, promo_text_ar, promo_text_en, promo_valid_until')
       .eq('id', body.campaign_id)
       .eq('account_id', ctx.accountId)
       .maybeSingle<CampaignRow>();
@@ -149,10 +153,16 @@ export async function POST(request: Request) {
       offerTexts = { ar: offerText(offer, 'ar'), en: offerText(offer, 'en') };
       expiryDate = offerExpiry(offer, new Date());
     }
+    const isPromo = campaign.campaign_type === 'NEW_OFFER';
+    if (isPromo && (!campaign.promo_image_url || !campaign.promo_text_ar || !campaign.promo_text_en || !campaign.promo_valid_until)) {
+      return NextResponse.json({ error: 'Finish the promotion first: image, Arabic and English text, valid-until date (Promotions page).' }, { status: 400 });
+    }
+    if (isPromo) expiryDate = campaign.promo_valid_until!;
     const wantedParams = buildParamsForKind(bilingual ? 'bi' : template.language, campaign.campaign_type, {
       name: sampleName,
       expiryDate,
       offer: offerTexts,
+      promo: isPromo ? { ar: campaign.promo_text_ar!, en: campaign.promo_text_en! } : null,
     });
     // Send exactly as many variables as the approved template declares (hello_world has none).
     const varCount = new Set([...(chosen.body_text ?? '').matchAll(/\{\{(\d+)\}\}/g)].map((m) => m[1])).size;
@@ -201,6 +211,7 @@ export async function POST(request: Request) {
           templateName: template.name,
           templateLanguage: sendLanguage,
           templateParams: params,
+          templateMessageParams: isPromo ? { body: params, headerMediaUrl: campaign.promo_image_url! } : undefined,
         });
         await admin.from('lulu_customer_next_actions').insert({
           ...row,

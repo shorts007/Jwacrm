@@ -24,6 +24,7 @@ import {
   loadApprovedTemplates,
   loadLiveCampaigns,
   loadPolicyAndSettings,
+  promoBlockReason,
 } from '@/lib/lulu/server';
 import type { PastSend } from '@/lib/lulu/types';
 
@@ -52,6 +53,11 @@ export async function POST(request: Request) {
     const sendable = live.filter((c) => {
       if (!chooseTemplate(c, null, approved)) {
         warnings.push(`${c.code}: no APPROVED template set.`);
+        return false;
+      }
+      const promoWhy = promoBlockReason(c, now);
+      if (promoWhy) {
+        warnings.push(`${c.code}: ${promoWhy} — campaign skipped.`);
         return false;
       }
       if (campaignNeedsOffer(c.type)) {

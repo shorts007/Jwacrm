@@ -258,10 +258,18 @@ export function LivePanel({ accountId, campaigns, onChanged }: { accountId: stri
                   {c.mode === "LIVE" ? (
                     <button type="button" className={btn} onClick={() => void setMode(c, false)}>Back to dry run</button>
                   ) : (
-                    <button type="button" className={btn} disabled={!c.active || (!c.template_name_ar && !c.template_name_en && !c.template_name_bilingual)}
-                      title={!c.active ? "Turn the Live switch On first" : undefined} onClick={() => void setMode(c, true)}>
-                      Make LIVE
-                    </button>
+                    <div className="flex flex-col items-end gap-0.5">
+                      <button type="button" className={btn} disabled={!c.active || (!c.template_name_ar && !c.template_name_en && !c.template_name_bilingual)}
+                        onClick={() => void setMode(c, true)}>
+                        Make LIVE
+                      </button>
+                      {/* Two deliberate steps so nothing goes to customers by a single click. */}
+                      {!c.active ? (
+                        <span className="text-[11px] text-muted-foreground">First turn its <b>Live</b> switch On in the campaign table above</span>
+                      ) : !c.template_name_ar && !c.template_name_en && !c.template_name_bilingual ? (
+                        <span className="text-[11px] text-muted-foreground">First save its template names in Step 2</span>
+                      ) : null}
+                    </div>
                   )}
                 </td>
               </tr>

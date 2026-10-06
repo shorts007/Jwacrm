@@ -44,6 +44,9 @@ export function profileFromRow(r: DryRunProfileRow): CustomerProfile {
     activeComplaint: r.active_complaint,
     suspectReason: r.suspect_reason,
     preferredStore: r.preferred_store,
+    customerSegment: r.customer_segment ?? null,
+    preferredStoreId: r.preferred_store_id ?? null,
+    priceBehaviour: r.price_sensitivity ?? null,
   };
 }
 

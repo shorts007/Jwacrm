@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { validateTemplatePayload } from "@/lib/whatsapp/template-validators";
-import { ALL_LULU_TEMPLATE_DEFS, DEFAULT_TEMPLATE_NAMES, LULU_BILINGUAL_TEMPLATE_DEFS, LULU_TEMPLATE_DEFS, buildBilingualParams, buildParamsForKind } from "./index";
+import { ALL_LULU_TEMPLATE_DEFS, DEFAULT_TEMPLATE_NAMES, LULU_BILINGUAL_TEMPLATE_DEFS, LULU_TEMPLATE_DEFS, buildBilingualParams, buildParamsForKind, promoTemplateDefs } from "./index";
 
 describe("LULU_TEMPLATE_DEFS", () => {
   it("every template passes WACRM's own Meta-rule validator", () => {
     for (const d of ALL_LULU_TEMPLATE_DEFS) expect(() => validateTemplatePayload(d), d.name).not.toThrow();
   });
   it("has an EN and AR template for each default campaign name", () => {
-    const names = new Set(ALL_LULU_TEMPLATE_DEFS.map((d) => d.name));
+    const names = new Set([...ALL_LULU_TEMPLATE_DEFS, ...promoTemplateDefs("https://x.test/p.png")].map((d) => d.name));
     for (const set of Object.values(DEFAULT_TEMPLATE_NAMES)) {
       expect(names.has(set!.ar)).toBe(true);
       expect(names.has(set!.en)).toBe(true);
