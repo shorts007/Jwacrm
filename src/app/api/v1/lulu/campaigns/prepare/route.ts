@@ -11,6 +11,7 @@
 
 import { requireApiKey } from '@/lib/auth/api-context';
 import { ok, toApiErrorResponse } from '@/lib/api/v1/respond';
+import { isHoldout } from '@/lib/lulu/attribution';
 import { gapBeforeNext, planSends, riyadhDayStart, totalDuration } from '@/lib/lulu/sender';
 import {
   campaignTemplateNames,
@@ -54,9 +55,10 @@ export async function POST(request: Request) {
     const [today, recent, allCampaigns, stops, rows] = await Promise.all([
       db.from('lulu_customer_next_actions').select('customer_id, status')
         .eq('account_id', accountId).eq('is_test', false).gte('created_at', dayStart).range(0, 9999),
-      db.from('lulu_customer_next_actions').select('customer_id, campaign_id, sent_at')
-        .eq('account_id', accountId).eq('is_test', false).eq('status', 'SENT')
-        .gte('sent_at', new Date(now.getTime() - 60 * DAY).toISOString()).range(0, 49999),
+      db.from('lulu_customer_next_actions').select('customer_id, campaign_id, sent_at, status, created_at')
+        .eq('account_id', accountId).eq('is_test', false)
+        .or('status.eq.SENT,skip_reason.eq.holdout')
+        .gte('created_at', new Date(now.getTime() - 60 * DAY).toISOString()).range(0, 49999),
       db.from('lulu_campaigns').select('id, campaign_code').eq('account_id', accountId),
       db.from('lulu_opt_outs').select('phone_digits').eq('account_id', accountId).range(0, 99999),
       loadActiveProfiles(db, accountId),
@@ -73,8 +75,10 @@ export async function POST(request: Request) {
     const windowStart = now.getTime() - Math.max(policy.promoWindowDays, policy.marketingWindowDays) * DAY;
     for (const a of recent.data ?? []) {
       const cid = a.customer_id as string;
-      const sentAt = new Date(a.sent_at as string);
-      if (sentAt.getTime() >= windowStart) {
+      // Holdout customers count as "received" so they stay out of the campaign (clean control group),
+      // but they do not count towards frequency caps — they were never messaged.
+      const sentAt = new Date((a.sent_at ?? a.created_at) as string);
+      if (a.status === 'SENT' && sentAt.getTime() >= windowStart) {
         if (!history.has(cid)) history.set(cid, []);
         history.get(cid)!.push({ sentAt, isPromo: true });
       }
@@ -90,7 +94,8 @@ export async function POST(request: Request) {
       liveCampaigns: sendable,
       policy,
       now,
-      remainingCap,
+      // Plan beyond the cap: holdout customers are recorded but don't use a send slot.
+      remainingCap: remainingCap * 2 + 20,
       history,
       receivedCodes,
       stopDigits: new Set((stops.data ?? []).map((s) => s.phone_digits as string)),
@@ -98,20 +103,32 @@ export async function POST(request: Request) {
     });
 
     const endOfDay = new Date(riyadhDayStart(now).getTime() + DAY).toISOString();
-    const inserts = plan.planned.map((p, i) => ({
-      account_id: accountId,
-      customer_id: p.customerId,
-      campaign_id: p.campaignId,
-      offer_id: p.offerId,
-      action_type: p.campaignType,
-      reason: p.reason,
-      language: p.language,
-      priority: i + 1,
-      idempotency_key: p.idempotencyKey,
-      status: 'SCHEDULED',
-      is_test: false,
-      expires_at: endOfDay,
-    }));
+    const pctById = new Map(sendable.map((c) => [c.id, c.holdoutPct]));
+    const inserts: Record<string, unknown>[] = [];
+    let toSend = 0;
+    let holdouts = 0;
+    for (const p of plan.planned) {
+      const holdout = isHoldout(p.customerId, p.campaignCode, pctById.get(p.campaignId) ?? 0);
+      if (!holdout && toSend >= remainingCap) break;
+      if (holdout) holdouts++;
+      else toSend++;
+      inserts.push({
+        account_id: accountId,
+        customer_id: p.customerId,
+        campaign_id: p.campaignId,
+        offer_id: p.offerId,
+        action_type: p.campaignType,
+        reason: p.reason,
+        language: p.language,
+        priority: inserts.length + 1,
+        idempotency_key: p.idempotencyKey,
+        status: holdout ? 'SKIPPED' : 'SCHEDULED',
+        skip_reason: holdout ? 'holdout' : null,
+        finished_at: holdout ? now.toISOString() : null,
+        is_test: false,
+        expires_at: endOfDay,
+      });
+    }
     let queued = 0;
     for (let i = 0; i < inserts.length; i += 500) {
       const { data, error } = await db
@@ -124,14 +141,16 @@ export async function POST(request: Request) {
 
     const sentToday = (today.data ?? []).filter((a) => a.status === 'SENT').length;
     return ok({
-      queued,
+      queued: toSend,
+      inserted: queued,
+      holdout: holdouts,
       cap: settings.dailyCap,
       used_before: used,
       evaluated: plan.evaluated,
       skipped: plan.skipped,
       warnings: blocked,
       first_wait_seconds: gapBeforeNext(sentToday, settings),
-      estimated_minutes: Math.round(totalDuration(queued, settings) / 60),
+      estimated_minutes: Math.round(totalDuration(toSend, settings) / 60),
     });
   } catch (err) {
     return toApiErrorResponse(err);

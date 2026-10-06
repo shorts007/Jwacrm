@@ -166,8 +166,14 @@ export default function EngagementPage() {
           </p>
         </div>
         <Link
-          href="/engagement/insights"
+          href="/engagement/results"
           className="ms-auto inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted"
+        >
+          Campaign results
+        </Link>
+        <Link
+          href="/engagement/insights"
+          className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted"
         >
           Customer insights
         </Link>

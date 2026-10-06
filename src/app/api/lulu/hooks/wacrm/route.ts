@@ -94,7 +94,36 @@ async function log(db: Db, accountId: string, event: string | null, outcome: str
   }
 }
 
+/** Any inbound message within 7 days of a LuLu campaign message counts as a REPLY to it (once per message). */
+async function trackReply(db: Db, accountId: string, data: Record<string, unknown>) {
+  if (typeof data.contact_id !== 'string') return;
+  const { data: contact } = await db
+    .from('contacts').select('phone_normalized').eq('id', data.contact_id).eq('account_id', accountId).maybeSingle();
+  const digits = contact?.phone_normalized as string | null;
+  if (!digits) return;
+  const { data: action } = await db
+    .from('lulu_customer_next_actions')
+    .select('id, campaign_id, customer_id')
+    .eq('account_id', accountId).eq('is_test', false).eq('status', 'SENT').eq('customer_id', digits)
+    .gte('sent_at', new Date(Date.now() - 7 * 86_400_000).toISOString())
+    .order('sent_at', { ascending: false }).limit(1).maybeSingle();
+  if (!action) return;
+  const { data: existing } = await db
+    .from('lulu_campaign_events').select('id').eq('action_id', action.id).eq('event_type', 'REPLIED').limit(1);
+  if (existing && existing.length) return;
+  await db.from('lulu_campaign_events').insert({
+    account_id: accountId, action_id: action.id, campaign_id: action.campaign_id, customer_id: action.customer_id,
+    event_type: 'REPLIED', meta: { text: typeof data.text === 'string' ? data.text.slice(0, 60) : null },
+  });
+  await log(db, accountId, 'message.received', 'reply_tracked', `+${digits}`);
+}
+
 async function handleInbound(db: Db, accountId: string, data: Record<string, unknown>) {
+  try {
+    await trackReply(db, accountId, data);
+  } catch (err) {
+    await log(db, accountId, 'message.received', 'error', `reply tracking: ${err instanceof Error ? err.message : String(err)}`);
+  }
   const text = typeof data.text === 'string' ? data.text : null;
   const intent = classifyReply(text);
   const language = intent ? null : classifyLanguage(text);
@@ -200,7 +229,7 @@ async function handleStatus(db: Db, accountId: string, data: Record<string, unkn
     .maybeSingle();
   if (!action) return;
 
-  await db.from('lulu_campaign_events').upsert(
+  const { error } = await db.from('lulu_campaign_events').upsert(
     {
       account_id: accountId,
       action_id: action.id,
@@ -212,5 +241,9 @@ async function handleStatus(db: Db, accountId: string, data: Record<string, unkn
     },
     { onConflict: 'account_id,wa_message_id,event_type', ignoreDuplicates: true }
   );
+  if (error) {
+    await log(db, accountId, 'message.status_updated', 'error', `status save failed: ${error.message}`);
+    return;
+  }
   await log(db, accountId, 'message.status_updated', 'status_tracked', `${eventType} ${wamid.slice(-12)}`);
 }

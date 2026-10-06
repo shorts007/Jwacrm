@@ -121,6 +121,13 @@ export default function CampaignsPage() {
               Rules that decide who to contact and why. Nothing here sends a message yet.
             </p>
           </div>
+          <div className="flex gap-2">
+          <Link
+            href="/engagement/results"
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted"
+          >
+            Results
+          </Link>
           <button
             type="button"
             onClick={() => void runDry()}
@@ -130,6 +137,7 @@ export default function CampaignsPage() {
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />}
             Run dry run
           </button>
+          </div>
         </div>
       </div>
 
