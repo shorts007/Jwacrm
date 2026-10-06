@@ -26,3 +26,11 @@ BigQuery = ecommerce truth · WACRM = communication truth · `lulu_*` = decision
 4. Webhook consumer (status/STOP) → `lulu_campaign_events`
 5. `/engagement` dashboard + campaign/offer admin, dry-run/test mode, approval
 6. Attribution job (orders → campaign window)
+
+## Customer 360 (PRD §61)
+- Inbox: a "Customer 360" card in the contact sidebar (`src/components/lulu/customer-card.tsx`) — stage, VIP, last order,
+  spend, basket, cycle, store, channel, discount behaviour, language choice, opt-out, last LuLu message + offer code / expiry.
+  **Only core change:** one import + one line in `src/components/inbox/contact-sidebar.tsx` (marked "LuLu customization").
+- `/engagement/customers`: search by phone digits or name, filter by stage / VIP.
+- `/engagement/customers/<phone>`: buying pattern, next expected order, preferences, every LuLu message with status,
+  delivered / read / replied, offer, attributed orders, and the engine's next best action with the reasons other campaigns lost.
