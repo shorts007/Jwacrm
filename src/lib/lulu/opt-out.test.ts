@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyReply, normalizeReply, statusToEvent } from "./index";
+import { OPT_IN_CONFIRMATION, OPT_OUT_CONFIRMATION, classifyReply, normalizeReply, statusToEvent } from "./index";
 
 describe("classifyReply", () => {
   it.each([
@@ -25,5 +25,15 @@ describe("statusToEvent", () => {
     expect(statusToEvent("READ")).toBe("READ");
     expect(statusToEvent("failed")).toBe("FAILED");
     expect(statusToEvent("sent")).toBeNull();
+  });
+});
+
+describe("confirmation texts", () => {
+  it("are brand-neutral and bilingual", () => {
+    for (const msg of [OPT_OUT_CONFIRMATION, OPT_IN_CONFIRMATION]) {
+      expect(msg).not.toMatch(/lulu|لولو/i);
+      expect(msg).toMatch(/online offers/);
+      expect(msg).toMatch(/العروض الإلكترونية/);
+    }
   });
 });

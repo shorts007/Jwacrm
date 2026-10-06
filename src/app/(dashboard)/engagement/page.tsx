@@ -23,6 +23,8 @@ interface Counts {
   optedIn: number;
   campaignEligible: number;
   suspects: number;
+  optOutPhones: number;
+  optedOutCustomers: number;
 }
 
 interface Suspect {
@@ -73,7 +75,7 @@ export default function EngagementPage() {
         .is("suspect_reason", null);
 
     try {
-      const [total, active, atRisk, dormant, lost, fresh, first, vip, optedIn, eligible, syncRes, suspectCount, suspectRows] =
+      const [total, active, atRisk, dormant, lost, fresh, first, vip, optedIn, eligible, syncRes, suspectCount, suspectRows, optOutRes, optedOutRes] =
         await Promise.all([
           base(),
           base().eq("lifecycle_stage", "ACTIVE"),
@@ -108,6 +110,10 @@ export default function EngagementPage() {
             .not("suspect_reason", "is", null)
             .order("total_orders", { ascending: false })
             .limit(25),
+          // Everyone who replied STOP (customers or not).
+          supabase.from("lulu_opt_outs").select("phone_digits", { count: "exact", head: true }).eq("account_id", accountId),
+          // Synced customers currently opted out.
+          base().eq("marketing_opt_in", false),
         ]);
 
       const firstErr = [total, active, atRisk, dormant, lost, fresh, first, vip, optedIn, eligible, suspectCount, suspectRows].find(
@@ -126,6 +132,9 @@ export default function EngagementPage() {
         optedIn: optedIn.count ?? 0,
         campaignEligible: eligible.count ?? 0,
         suspects: suspectCount.count ?? 0,
+        // lulu_opt_outs needs migration 051; treat a missing table as zero rather than failing the page.
+        optOutPhones: optOutRes.error ? 0 : (optOutRes.count ?? 0),
+        optedOutCustomers: optedOutRes.count ?? 0,
       });
       setSuspects((suspectRows.data as Suspect[] | null) ?? []);
       setRefreshKey((k) => k + 1);
@@ -237,9 +246,10 @@ export default function EngagementPage() {
           subtitle="Excluded from all counts and campaigns"
         />
         <MetricCard
-          title="Opted out"
-          value={counts ? fmt(counts.total - counts.optedIn) : "—"}
+          title="Opted out of messages"
+          value={counts ? fmt(counts.optOutPhones) : "—"}
           icon={BellOff}
+          subtitle={counts ? `Replied STOP · ${fmt(counts.optedOutCustomers)} of them are synced customers` : undefined}
         />
       </div>
 
