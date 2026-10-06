@@ -7,6 +7,7 @@ import Link from "next/link";
 import { ArrowLeft, FlaskConical, Loader2, Plus } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
+import { Switch } from "@/components/ui/switch";
 import { TestPanel } from "./campaigns-test-panel";
 import { LuluTemplatesPanel } from "./lulu-templates-panel";
 import { OptOutPanel } from "./opt-out-panel";
@@ -198,18 +199,23 @@ export default function CampaignsPage() {
                   </td>
                   <td className="px-4 py-2">{PRIORITY_CLASS_BY_TYPE[c.campaign_type] ?? "—"}</td>
                   <td className="px-4 py-2 text-xs text-muted-foreground">
-                    {Object.entries(c.rule_params ?? {}).map(([k, v]) => `${k}: ${String(v)}`).join(", ") || "—"}
+                    {Object.entries(c.rule_params ?? {})
+                      .map(([k, v]) =>
+                        v && typeof v === "object"
+                          ? `${k}: ${Object.entries(v as Record<string, unknown>).map(([a, b]) => `${a}=${Array.isArray(b) ? b.join("/") : String(b)}`).join(", ") || "everyone"}`
+                          : `${k}: ${String(v)}`,
+                      )
+                      .join(", ") || "—"}
                   </td>
                   <td className="px-4 py-2">{c.mode}</td>
                   <td className="px-4 py-2">
-                    <button
-                      type="button"
-                      onClick={() => void toggleActive(c)}
-                      className={`rounded-full px-2 py-0.5 text-xs ${c.active ? "bg-emerald-500/15 text-emerald-600" : "bg-muted text-muted-foreground"}`}
-                      title="Marks the campaign as eligible for live sending once the sender exists. Dry run ignores this."
+                    <label
+                      className="inline-flex cursor-pointer items-center gap-2"
+                      title="On = allowed to send to customers once it is made LIVE in Step 3. Off stops it immediately. The dry run ignores this."
                     >
-                      {c.active ? "On" : "Off"}
-                    </button>
+                      <Switch checked={c.active} onCheckedChange={() => void toggleActive(c)} aria-label={`Live switch for ${c.name}`} />
+                      <span className={`text-xs ${c.active ? "text-emerald-600" : "text-muted-foreground"}`}>{c.active ? "On" : "Off"}</span>
+                    </label>
                   </td>
                 </tr>
               ))}
