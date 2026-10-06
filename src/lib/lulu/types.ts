@@ -21,7 +21,9 @@ export type CampaignType =
   | "BIRTHDAY"
   | "VIP_PROTECTION"
   | "NEW_OFFER"
-  | "SELECTED_CUSTOMER_OFFER";
+  | "SELECTED_CUSTOMER_OFFER"
+  | "REPLENISHMENT"
+  | "BUY_AGAIN";
 
 /** PRD §56 priority classes. Order is configurable via lulu_contact_policy. */
 export type PriorityClass =
@@ -51,6 +53,8 @@ export interface CustomerProfile {
   customerSegment?: string | null;
   preferredStoreId?: number | null;
   priceBehaviour?: string | null;
+  /** Replenishable products this customer buys repeatedly (V2 personalisation). */
+  usualItems?: UsualItem[];
   preferredStore?: string | null;
 }
 
@@ -58,6 +62,8 @@ export interface CampaignConfig {
   id: string;
   code: string;
   name?: string;
+  /** Tie-break inside the same priority class (lower first) — lulu_campaigns.priority. */
+  rank?: number;
   type: CampaignType;
   priorityClass: PriorityClass;
   active: boolean;
@@ -76,6 +82,13 @@ export interface CampaignConfig {
     lostRatio?: number;
     /** NEW_OFFER (promotion) audience; empty / missing fields mean "everyone". */
     audience?: PromoAudience;
+    /** REPLENISHMENT: an item is due from dueRatio × its usual gap … until overdueRatio × gap. */
+    dueRatio?: number; // default 0.9
+    overdueRatio?: number; // default 2
+    maxItems?: number; // items named in the message, default 3
+    /** BUY_AGAIN: lifecycle stages to target (default AT_RISK) and minimum usual items. */
+    stages?: LifecycleStage[];
+    minItems?: number; // default 2
   };
 }
 
@@ -146,4 +159,13 @@ export interface PromoAudience {
   minOrders?: number;
   /** Only customers who ordered within the last N days. */
   orderedWithinDays?: number;
+}
+
+export interface UsualItem {
+  name: string;
+  times: number;
+  /** YYYY-MM-DD last bought */
+  last: string;
+  /** usual days between purchases */
+  every: number;
 }

@@ -163,6 +163,7 @@ export async function POST(request: Request) {
       expiryDate,
       offer: offerTexts,
       promo: isPromo ? { ar: campaign.promo_text_ar!, en: campaign.promo_text_en! } : null,
+      items: ['Banana Ecuador 1 kg', 'LuLu White Eggs Large 30 pcs'],
     });
     // Send exactly as many variables as the approved template declares (hello_world has none).
     const varCount = new Set([...(chosen.body_text ?? '').matchAll(/\{\{(\d+)\}\}/g)].map((m) => m[1])).size;

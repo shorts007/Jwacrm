@@ -130,7 +130,7 @@ export const LULU_BILINGUAL_TEMPLATE_DEFS: TemplatePayload[] = (
   return biDef(`${base}_bi`, ar, en, [...samples]);
 });
 
-export const ALL_LULU_TEMPLATE_DEFS: TemplatePayload[] = [...LULU_TEMPLATE_DEFS, ...LULU_BILINGUAL_TEMPLATE_DEFS];
+
 
 
 /** Max characters of promotion text per language (keeps the bilingual body under Meta's 1,024 limit). */
@@ -162,3 +162,37 @@ export function promoTemplateDefs(sampleImageUrl: string): TemplatePayload[] {
     },
   ];
 }
+
+/** V2 personalisation templates (brand-neutral). {{1}} first name, {{2}} the customer's own products. */
+function personalSet(base: string, ar: string, en: string): TemplatePayload[] {
+  const sAr = ["أحمد", "Banana Ecuador 1 kg و LuLu White Eggs Large 30 pcs"];
+  const sEn = ["Ahmed", "Banana Ecuador 1 kg and LuLu White Eggs Large 30 pcs"];
+  return [
+    { name: `${base}_ar`, category: "Marketing", language: "ar", body_text: ar, footer_text: FOOTER.ar, sample_values: { body: sAr } },
+    { name: `${base}_en`, category: "Marketing", language: "en", body_text: en, footer_text: FOOTER.en, sample_values: { body: sEn } },
+    {
+      name: `${base}_bi`,
+      category: "Marketing",
+      language: "ar",
+      body_text: `${ar}\n\n${en.replace(/\{\{(\d+)\}\}/g, (_, d: string) => `{{${Number(d) + 2}}}`)}`,
+      footer_text: BI_FOOTER,
+      buttons: LANGUAGE_BUTTONS,
+      sample_values: { body: [...sAr, ...sEn] },
+    },
+  ];
+}
+
+export const PERSONAL_TEMPLATE_DEFS: TemplatePayload[] = [
+  ...personalSet(
+    "restock",
+    "مرحباً {{1}}، هل حان وقت التزوّد؟ قد تكون مشترياتك المعتادة ({{2}}) على وشك النفاد. اطلب الآن ونوصلها حتى باب بيتك.",
+    "Hi {{1}}, time to restock? Your usual {{2}} may be running low. Order now and we will deliver to your door.",
+  ),
+  ...personalSet(
+    "buy_again",
+    "مرحباً {{1}}، مفضلاتك بانتظارك: {{2}}. اطلبها مجدداً بنقرات قليلة وتصلك حتى باب بيتك.",
+    "Hi {{1}}, your favourites are waiting: {{2}}. Order them again in a few taps and get them delivered to your door.",
+  ),
+];
+
+export const ALL_LULU_TEMPLATE_DEFS: TemplatePayload[] = [...LULU_TEMPLATE_DEFS, ...LULU_BILINGUAL_TEMPLATE_DEFS, ...PERSONAL_TEMPLATE_DEFS];

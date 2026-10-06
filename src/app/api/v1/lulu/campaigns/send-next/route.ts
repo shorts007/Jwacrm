@@ -19,6 +19,7 @@ import { ok, toApiErrorResponse } from '@/lib/api/v1/respond';
 import { isQuietNow } from '@/lib/lulu/contact-policy';
 import { profileFromRow, type DryRunProfileRow } from '@/lib/lulu/dry-run';
 import { buildParamsForKind } from '@/lib/lulu/messages';
+import { dueItems } from '@/lib/lulu/lifecycle';
 import { campaignNeedsOffer, customerOfferReason, offerBlockReason, offerExpiry, offerText, type Offer } from '@/lib/lulu/offers';
 import { decideNextBestAction } from '@/lib/lulu/next-best-action';
 import { gapBeforeNext, isPauseWorthyError, riyadhDayStart } from '@/lib/lulu/sender';
@@ -181,7 +182,15 @@ export async function POST(request: Request) {
       expiryDate,
       offer: offer ? { ar: offerText(offer, 'ar'), en: offerText(offer, 'en') } : null,
       promo: isPromo ? { ar: campaign.promoTextAr ?? '', en: campaign.promoTextEn ?? '' } : null,
+      // V2: the customer's own products — due items for Replenishment, most-bought for Buy Again.
+      items:
+        campaign.type === 'REPLENISHMENT'
+          ? dueItems(profile.usualItems, now, campaign.params.dueRatio, campaign.params.overdueRatio).slice(0, campaign.params.maxItems ?? 3).map((i) => i.name)
+          : campaign.type === 'BUY_AGAIN'
+            ? (profile.usualItems ?? []).slice(0, campaign.params.maxItems ?? 3).map((i) => i.name)
+            : null,
     });
+    if ((campaign.type === 'REPLENISHMENT' || campaign.type === 'BUY_AGAIN') && !wanted[1]) return skip('no usual items to name');
     if (template.varCount > wanted.length) {
       await finish('FAILED', { last_error: `template ${template.name} needs ${template.varCount} variables` });
       return ok({ sent: 0, done: false, remaining: await remainingCount(), next_wait_seconds: 1, status: 'FAILED', reason: 'template variable mismatch' });

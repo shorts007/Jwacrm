@@ -13,11 +13,15 @@ export const DEFAULT_TEMPLATE_NAMES: Partial<Record<CampaignType, { ar: string; 
   SECOND_ORDER: { ar: "lulu_second_order_ar", en: "lulu_second_order_en", bi: "lulu_second_order_bi" },
   VIP_PROTECTION: { ar: "lulu_vip_care_ar", en: "lulu_vip_care_en", bi: "lulu_vip_care_bi" },
   NEW_OFFER: { ar: "promo_image_ar", en: "promo_image_en", bi: "promo_image_bi" },
+  REPLENISHMENT: { ar: "restock_ar", en: "restock_en", bi: "restock_bi" },
+  BUY_AGAIN: { ar: "buy_again_ar", en: "buy_again_en", bi: "buy_again_bi" },
 };
 
 /** Number of positional body variables each campaign's template takes: {{1}}=name, {{2}}=offer, {{3}}=expiry. */
-const VARIABLES: Partial<Record<CampaignType, ("name" | "offer" | "expiry" | "promo")[]>> = {
+const VARIABLES: Partial<Record<CampaignType, ("name" | "offer" | "expiry" | "promo" | "items")[]>> = {
   NEW_OFFER: ["name", "promo", "expiry"],
+  REPLENISHMENT: ["name", "items"],
+  BUY_AGAIN: ["name", "items"],
   INACTIVE_15: ["name"],
   WINBACK_30: ["name", "offer", "expiry"],
   LOST_60: ["name"],
@@ -33,6 +37,17 @@ export interface MessageContext {
   expiryDate?: string | null;
   /** Promotion text (NEW_OFFER). */
   promoText?: string | null;
+  /** Product names for REPLENISHMENT / BUY_AGAIN. */
+  items?: string[] | null;
+}
+
+/** "A, B and C" / "A، B و C" — product names stay as in the catalogue (English). Max 3, each ≤ 40 chars. */
+export function itemsText(items: string[] | null | undefined, language: MessageLanguage): string {
+  const list = (items ?? []).map((n) => cleanVariable(n)).filter(Boolean).slice(0, 3).map((n) => (n.length > 40 ? `${n.slice(0, 39)}…` : n));
+  if (list.length <= 1) return list[0] ?? "";
+  const head = list.slice(0, -1).join(language === "ar" ? "، " : ", ");
+  // Product names are Latin script, so keep "و" as a separate word in Arabic.
+  return language === "ar" ? `${head} و ${list.at(-1)}` : `${head} and ${list.at(-1)}`;
 }
 
 const FALLBACK_NAME: Record<MessageLanguage, string> = { ar: "عزيزنا العميل", en: "there" };
@@ -64,6 +79,7 @@ export function buildTemplateParams(type: CampaignType, ctx: MessageContext): st
     // No default offer wording: a message must never promise an offer that does not exist.
     if (v === "offer") return cleanVariable(ctx.offerText ?? "");
     if (v === "promo") return cleanVariable(ctx.promoText ?? "");
+    if (v === "items") return itemsText(ctx.items, ctx.language);
     return ctx.expiryDate ? formatExpiry(ctx.expiryDate, ctx.language) : "";
   });
 }
@@ -124,6 +140,7 @@ export function buildParamsForKind(
     expiryDate?: string | null;
     offer?: { ar: string; en: string } | null;
     promo?: { ar: string; en: string } | null;
+    items?: string[] | null;
   },
 ): string[] {
   const one = (language: MessageLanguage) =>
@@ -133,6 +150,7 @@ export function buildParamsForKind(
       expiryDate: ctx.expiryDate ?? null,
       offerText: ctx.offer?.[language] ?? null,
       promoText: ctx.promo?.[language] ?? null,
+      items: ctx.items ?? null,
     });
   return kind === "bi" ? [...one("ar"), ...one("en")] : one(kind);
 }

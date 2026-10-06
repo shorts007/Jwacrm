@@ -178,6 +178,21 @@ export default function CampaignsPage() {
         </div>
       )}
 
+      {campaigns.length > 0 &&
+        DEFAULT_CAMPAIGN_ROWS.some((d) => !campaigns.some((c) => c.campaign_code === d.campaign_code)) && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-dashed border-border p-3 text-sm">
+            <span className="text-muted-foreground">
+              New campaign types are available:{" "}
+              {DEFAULT_CAMPAIGN_ROWS.filter((d) => !campaigns.some((c) => c.campaign_code === d.campaign_code)).map((d) => d.name).join(", ")}.
+              They are added switched off, in dry-run mode.
+            </span>
+            <button type="button" onClick={() => void createDefaults()} disabled={busy}
+              className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-foreground hover:bg-muted disabled:opacity-50">
+              <Plus className="h-4 w-4" /> Add them
+            </button>
+          </div>
+        )}
+
       {campaigns.length > 0 && (
         <div className="overflow-x-auto rounded-xl border border-border bg-card">
           <table className="w-full text-left text-sm">

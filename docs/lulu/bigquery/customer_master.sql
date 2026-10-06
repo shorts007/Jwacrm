@@ -50,6 +50,10 @@ WITH params AS (
     0.70 AS offer_driven_share,        -- >= 70 % of (known) orders discounted  → 'Offer-driven'
     0.20 AS full_price_share,          -- <= 20 % of (known) orders discounted  → 'Full-price'
     3    AS min_orders_for_sensitivity,
+    -- Usual items (replenishment / buy again), from picking data (Apr 2026+):
+    150  AS max_item_price,            -- skip expensive one-off items (phones, appliances)
+    20   AS min_product_buyers,        -- product must be bought by at least N customers …
+    0.20 AS min_repeat_rate,           -- … and re-bought by >= 20 % of them (a "replenishable" product)
     -- PHASE 1 FOCUS: Jeddah. City names are unreliable (copies of the same order say 'Jeddah' or a district
     -- such as 'Al Bawadi', 'Al Safa'…), so the focus is defined by STORE: a customer is kept if their latest
     -- order was fulfilled by one of these stores. Jeddah stores: 3805 Amir Fawaz, 3806 Kilo 7, 3808 Hamdaniya,
@@ -244,6 +248,59 @@ pref_dept AS (
   QUALIFY ROW_NUMBER() OVER (PARTITION BY phone ORDER BY spend DESC, dept) = 1
 ),
 
+-- ---------------------------------------------------------------- usual items (V2 personalisation)
+item_hist AS (
+  SELECT REGEXP_EXTRACT(i.job_number, r'^Lulu-(\d+)') AS order_number_str,
+         TRIM(i.name) AS name,
+         IFNULL(i.price, 0) AS price
+  FROM `myecomlulu.jackpot.instaleap_raw` AS i
+  WHERE i.name IS NOT NULL
+    AND NOT REGEXP_CONTAINS(UPPER(IFNULL(i.job_state, '')), r'CANCEL')
+    AND NOT IFNULL(i.is_substitute, FALSE)
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY i.id ORDER BY i.updated_at DESC) = 1
+),
+cust_item_days AS (
+  SELECT o.phone, h.name, o.order_date, AVG(h.price) AS price
+  FROM orders AS o
+  JOIN item_hist AS h ON CAST(o.order_number AS STRING) = h.order_number_str
+  GROUP BY o.phone, h.name, o.order_date
+),
+cust_item_gaps AS (
+  SELECT *, DATE_DIFF(order_date, LAG(order_date) OVER (PARTITION BY phone, name ORDER BY order_date), DAY) AS gap
+  FROM cust_item_days
+),
+cust_item AS (
+  SELECT phone, name, COUNT(*) AS times, MAX(order_date) AS last_d, AVG(price) AS avg_price,
+         APPROX_QUANTILES(gap, 100 IGNORE NULLS)[SAFE_OFFSET(50)] AS own_gap
+  FROM cust_item_gaps
+  GROUP BY phone, name
+),
+product_stats AS (
+  SELECT name, COUNT(*) AS buyers, COUNTIF(times >= 2) / COUNT(*) AS repeat_rate,
+         APPROX_QUANTILES(own_gap, 100 IGNORE NULLS)[SAFE_OFFSET(50)] AS typical_gap
+  FROM cust_item
+  GROUP BY name
+),
+usual AS (
+  -- Up to 5 replenishable items per customer: name, times bought, last bought, usual gap in days
+  -- (the customer's own gap after 3+ purchases, else the product's typical gap among repeat buyers).
+  SELECT ci.phone,
+         TO_JSON_STRING(ARRAY_AGG(STRUCT(
+           ci.name AS name,
+           ci.times AS times,
+           CAST(ci.last_d AS STRING) AS last,
+           CAST(COALESCE(IF(ci.times >= 3, ci.own_gap, NULL), ps.typical_gap) AS INT64) AS every
+         ) ORDER BY ci.times DESC, ci.last_d DESC LIMIT 5)) AS usual_items
+  FROM cust_item AS ci
+  JOIN product_stats AS ps USING (name)
+  WHERE ci.times >= 2
+    AND ci.avg_price <= (SELECT max_item_price FROM params)
+    AND ps.buyers >= (SELECT min_product_buyers FROM params)
+    AND ps.repeat_rate >= (SELECT min_repeat_rate FROM params)
+    AND COALESCE(IF(ci.times >= 3, ci.own_gap, NULL), ps.typical_gap) BETWEEN 3 AND 90
+  GROUP BY ci.phone
+),
+
 scored AS (
   SELECT
     c.*,
@@ -318,6 +375,7 @@ SELECT
   IF(ARRAY_LENGTH((SELECT focus_storeids FROM params)) > 0
        AND s.latest_storeid IN UNNEST((SELECT focus_storeids FROM params)),
      (SELECT focus_region_name FROM params), s.city) AS city,
+  u.usual_items,                            -- JSON array: [{name, times, last, every}] (V2 personalisation)
   -- newest order in the source data; lets the app warn when the feed is stale
   FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%SZ', (SELECT MAX(date_placed) FROM orders_raw)) AS data_as_of
 FROM scored AS s
@@ -326,4 +384,5 @@ LEFT JOIN pref_store_id AS ps ON ps.phone = s.phone
 LEFT JOIN store_names   AS sn ON sn.storeid = ps.preferred_store_id
 LEFT JOIN pref_channel  AS pc ON pc.phone = s.phone
 LEFT JOIN pref_dept     AS pd ON pd.phone = s.phone
+LEFT JOIN usual         AS u  ON u.phone  = s.phone
 ORDER BY s.phone;
