@@ -57,7 +57,8 @@ export function buildTemplateParams(type: CampaignType, ctx: MessageContext): st
   const vars = VARIABLES[type] ?? ["name"];
   return vars.map((v) => {
     if (v === "name") return displayName(ctx.name, ctx.language);
-    if (v === "offer") return cleanVariable(ctx.offerText ?? "") || (ctx.language === "ar" ? "توصيل مجاني" : "free delivery");
+    // No default offer wording: a message must never promise an offer that does not exist.
+    if (v === "offer") return cleanVariable(ctx.offerText ?? "");
     return ctx.expiryDate ? formatExpiry(ctx.expiryDate, ctx.language) : "";
   });
 }
@@ -104,4 +105,18 @@ export function chooseTemplateKind(
     if (n && isApproved(n)) return { kind: k, name: n };
   }
   return null;
+}
+
+/**
+ * Params for the chosen template kind, with the offer wording in the right language(s).
+ * `offer` must come from a real, usable offer for campaigns that mention one.
+ */
+export function buildParamsForKind(
+  kind: TemplateChoiceKind,
+  type: CampaignType,
+  ctx: { name?: string | null; expiryDate?: string | null; offer?: { ar: string; en: string } | null },
+): string[] {
+  const one = (language: MessageLanguage) =>
+    buildTemplateParams(type, { name: ctx.name, language, expiryDate: ctx.expiryDate ?? null, offerText: ctx.offer?.[language] ?? null });
+  return kind === "bi" ? [...one("ar"), ...one("en")] : one(kind);
 }

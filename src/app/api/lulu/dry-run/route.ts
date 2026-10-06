@@ -9,6 +9,8 @@
 import { NextResponse } from 'next/server';
 
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
+import { campaignNeedsOffer, offerBlockReason } from '@/lib/lulu/offers';
+import { loadOfferDiscountUsed, loadOffers } from '@/lib/lulu/server';
 import {
   campaignFromRow,
   policyFromRow,
@@ -83,7 +85,19 @@ export async function POST() {
       new Date()
     );
 
+    // Offer campaigns can't go live without a usable offer — say so in the dry run.
+    const campaignsCfg = (campaignRows as CampaignRow[]).map(campaignFromRow);
+    const warnings: string[] = [];
+    if (campaignsCfg.some((c) => campaignNeedsOffer(c.type))) {
+      const [offers, used] = await Promise.all([loadOffers(db, accountId), loadOfferDiscountUsed(db, accountId)]);
+      for (const c of campaignsCfg.filter((x) => campaignNeedsOffer(x.type))) {
+        const why = offerBlockReason(c.offerId ? offers.get(c.offerId) : null, new Date(), c.offerId ? (used.get(c.offerId) ?? 0) : 0);
+        if (why) warnings.push(`${c.name}: ${why} — it will not send live until fixed.`);
+      }
+    }
+
     return NextResponse.json({
+      warnings,
       report,
       dataAsOf: syncRows?.[0]?.data_as_of ?? null,
       note: 'Simulation only — nothing was sent or saved. Message history is empty until the sender exists, so frequency caps are not applied yet.',

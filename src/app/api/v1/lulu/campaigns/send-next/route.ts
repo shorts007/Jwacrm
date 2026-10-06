@@ -18,7 +18,8 @@ import { requireApiKey } from '@/lib/auth/api-context';
 import { ok, toApiErrorResponse } from '@/lib/api/v1/respond';
 import { isQuietNow } from '@/lib/lulu/contact-policy';
 import { profileFromRow, type DryRunProfileRow } from '@/lib/lulu/dry-run';
-import { buildBilingualParams, buildTemplateParams } from '@/lib/lulu/messages';
+import { buildParamsForKind } from '@/lib/lulu/messages';
+import { campaignNeedsOffer, customerOfferReason, offerBlockReason, offerExpiry, offerText, type Offer } from '@/lib/lulu/offers';
 import { decideNextBestAction } from '@/lib/lulu/next-best-action';
 import { gapBeforeNext, isPauseWorthyError, riyadhDayStart } from '@/lib/lulu/sender';
 import {
@@ -26,6 +27,8 @@ import {
   campaignTemplateNames,
   chooseTemplate,
   loadLanguagePreference,
+  loadOfferDiscountUsed,
+  loadOffers,
   liveGates,
   loadApprovedTemplates,
   loadLiveCampaigns,
@@ -139,6 +142,21 @@ export async function POST(request: Request) {
     });
     if (!decision.action) return skip(decision.skipped[0]?.reason ?? 'no longer eligible');
 
+    // Offer campaigns: the offer must still be usable (active, in date, budget left) and fit this customer.
+    let offer: Offer | null = null;
+    if (campaignNeedsOffer(campaign.type)) {
+      const [offers, used] = await Promise.all([loadOffers(db, accountId), loadOfferDiscountUsed(db, accountId)]);
+      offer = campaign.offerId ? (offers.get(campaign.offerId) ?? null) : null;
+      const why = offerBlockReason(offer, now, campaign.offerId ? (used.get(campaign.offerId) ?? 0) : 0);
+      if (why) return skip(why);
+      const custWhy = customerOfferReason(offer!, {
+        customerSegment: row.customer_segment ?? null,
+        preferredStoreId: row.preferred_store_id ?? null,
+        priceBehaviour: row.price_sensitivity ?? null,
+      });
+      if (custWhy) return skip(custWhy);
+    }
+
     const approved = await loadApprovedTemplates(db, accountId, campaignTemplateNames(campaign));
     const preference = await loadLanguagePreference(db, accountId, digits);
     const choice = chooseTemplate(campaign, preference, approved);
@@ -147,12 +165,13 @@ export async function POST(request: Request) {
       return ok({ sent: 0, done: false, remaining: await remainingCount(), next_wait_seconds: 1, status: 'FAILED', reason: 'no approved template' });
     }
     const template = choice.template;
-    const expiryDate = new Date(now.getTime() + 7 * DAY).toISOString().slice(0, 10);
+    const expiryDate = offer ? offerExpiry(offer, now) : new Date(now.getTime() + 7 * DAY).toISOString().slice(0, 10);
     // No language chosen yet → bilingual template (AR block + EN block, with العربية / English buttons).
-    const wanted =
-      choice.kind === 'bi'
-        ? buildBilingualParams(campaign.type, { name: profile.name, expiryDate })
-        : buildTemplateParams(campaign.type, { name: profile.name, language: choice.kind, expiryDate });
+    const wanted = buildParamsForKind(choice.kind, campaign.type, {
+      name: profile.name,
+      expiryDate,
+      offer: offer ? { ar: offerText(offer, 'ar'), en: offerText(offer, 'en') } : null,
+    });
     if (template.varCount > wanted.length) {
       await finish('FAILED', { last_error: `template ${template.name} needs ${template.varCount} variables` });
       return ok({ sent: 0, done: false, remaining: await remainingCount(), next_wait_seconds: 1, status: 'FAILED', reason: 'template variable mismatch' });
@@ -175,10 +194,11 @@ export async function POST(request: Request) {
         template_name: template.name,
         template_language: template.language,
         template_params: params,
+        offer_id: offer?.id ?? claimed.offer_id,
       });
       await db.from('lulu_campaign_events').insert({
         account_id: accountId, action_id: claimed.id, campaign_id: campaign.id, customer_id: claimed.customer_id,
-        offer_id: claimed.offer_id, wa_message_id: sent.whatsappMessageId, event_type: 'SENT',
+        offer_id: offer?.id ?? claimed.offer_id, wa_message_id: sent.whatsappMessageId, event_type: 'SENT',
       });
       const remaining = await remainingCount();
       return ok({ sent: 1, done: remaining === 0, remaining, status: 'SENT', next_wait_seconds: gapBeforeNext(sentToday + 1, settings) });

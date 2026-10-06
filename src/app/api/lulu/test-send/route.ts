@@ -23,9 +23,14 @@ import {
 } from '@/lib/whatsapp/send-message';
 import {
   TEMPLATE_LANGUAGE,
+  OFFER_COLUMNS,
   asMessageLanguage,
-  buildBilingualParams,
-  buildTemplateParams,
+  buildParamsForKind,
+  campaignNeedsOffer,
+  offerExpiry,
+  offerFromRow,
+  offerText,
+  type OfferRow,
   pickTemplate,
   type CampaignType,
 } from '@/lib/lulu';
@@ -38,6 +43,7 @@ interface CampaignRow {
   template_name_en: string | null;
   template_name_bilingual: string | null;
   test_phones: string[] | null;
+  offer_id: string | null;
 }
 
 export async function POST(request: Request) {
@@ -58,7 +64,7 @@ export async function POST(request: Request) {
 
     const { data: campaign, error } = await ctx.supabase
       .from('lulu_campaigns')
-      .select('id, campaign_code, campaign_type, template_name_ar, template_name_en, template_name_bilingual, test_phones')
+      .select('id, campaign_code, campaign_type, template_name_ar, template_name_en, template_name_bilingual, test_phones, offer_id')
       .eq('id', body.campaign_id)
       .eq('account_id', ctx.accountId)
       .maybeSingle<CampaignRow>();
@@ -126,13 +132,28 @@ export async function POST(request: Request) {
     const sendLanguage = chosen.language ?? wanted;
 
     const expiry = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
-    const wantedParams = bilingual
-      ? buildBilingualParams(campaign.campaign_type, { name: sampleName, expiryDate: expiry })
-      : buildTemplateParams(campaign.campaign_type, {
-          name: sampleName,
-          language: template.language,
-          expiryDate: expiry,
-        });
+    // Offer campaigns are tested with their REAL offer wording — never a placeholder.
+    let offerTexts: { ar: string; en: string } | null = null;
+    let expiryDate = expiry;
+    if (campaignNeedsOffer(campaign.campaign_type)) {
+      const { data: offerRow } = campaign.offer_id
+        ? await ctx.supabase.from('lulu_offers').select(OFFER_COLUMNS).eq('id', campaign.offer_id).maybeSingle()
+        : { data: null };
+      if (!offerRow) {
+        return NextResponse.json(
+          { error: 'This campaign mentions an offer — attach one first (Campaigns → Step 3 → Offer, created on the Offers page).' },
+          { status: 400 }
+        );
+      }
+      const offer = offerFromRow(offerRow as unknown as OfferRow);
+      offerTexts = { ar: offerText(offer, 'ar'), en: offerText(offer, 'en') };
+      expiryDate = offerExpiry(offer, new Date());
+    }
+    const wantedParams = buildParamsForKind(bilingual ? 'bi' : template.language, campaign.campaign_type, {
+      name: sampleName,
+      expiryDate,
+      offer: offerTexts,
+    });
     // Send exactly as many variables as the approved template declares (hello_world has none).
     const varCount = new Set([...(chosen.body_text ?? '').matchAll(/\{\{(\d+)\}\}/g)].map((m) => m[1])).size;
     if (varCount > wantedParams.length) {

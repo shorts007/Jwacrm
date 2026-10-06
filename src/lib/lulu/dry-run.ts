@@ -24,6 +24,8 @@ export interface DryRunProfileRow {
   suspect_reason: string | null;
   preferred_store: string | null;
   price_sensitivity?: string | null;
+  customer_segment?: string | null;
+  preferred_store_id?: number | null;
 }
 
 export function profileFromRow(r: DryRunProfileRow): CustomerProfile {

@@ -26,6 +26,7 @@ interface CampaignRow {
   template_name_en: string | null;
   template_name_bilingual: string | null;
   test_phones: string[] | null;
+  offer_id: string | null;
 }
 
 const fmt = (n: number) => n.toLocaleString("en-US");
@@ -47,7 +48,7 @@ export default function CampaignsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [dry, setDry] = useState<{ report: DryRunReport; dataAsOf: string | null } | null>(null);
+  const [dry, setDry] = useState<{ report: DryRunReport; dataAsOf: string | null; warnings?: string[] } | null>(null);
   const [dryError, setDryError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -55,7 +56,7 @@ export default function CampaignsPage() {
     setLoading(true);
     const { data, error: err } = await createClient()
       .from("lulu_campaigns")
-      .select("id, campaign_code, name, campaign_type, rule_params, status, mode, active, template_name_ar, template_name_en, template_name_bilingual, test_phones")
+      .select("id, campaign_code, name, campaign_type, rule_params, status, mode, active, template_name_ar, template_name_en, template_name_bilingual, test_phones, offer_id")
       .eq("account_id", accountId)
       .order("priority");
     if (err) setError(err.message);
@@ -122,6 +123,12 @@ export default function CampaignsPage() {
             </p>
           </div>
           <div className="flex gap-2">
+          <Link
+            href="/engagement/offers"
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted"
+          >
+            Offers
+          </Link>
           <Link
             href="/engagement/results"
             className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted"
@@ -237,6 +244,9 @@ export default function CampaignsPage() {
               numbers skipped). <b className="text-foreground">{fmt(dry.report.customersWithAction)}</b> would receive a message today;{" "}
               {fmt(dry.report.customersWithoutAction)} would not.
             </p>
+            {(dry.warnings ?? []).map((w) => (
+              <p key={w} className="mt-2 text-sm text-amber-600">{w}</p>
+            ))}
             {hours !== null && hours > 36 && (
               <p className="mt-2 text-sm text-amber-600">
                 Order data is {hours}h old — these numbers overstate inactivity. Refresh the data and re-sync first.

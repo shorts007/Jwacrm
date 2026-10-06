@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { validateTemplatePayload } from "@/lib/whatsapp/template-validators";
-import { ALL_LULU_TEMPLATE_DEFS, DEFAULT_TEMPLATE_NAMES, LULU_BILINGUAL_TEMPLATE_DEFS, LULU_TEMPLATE_DEFS, buildBilingualParams } from "./index";
+import { ALL_LULU_TEMPLATE_DEFS, DEFAULT_TEMPLATE_NAMES, LULU_BILINGUAL_TEMPLATE_DEFS, LULU_TEMPLATE_DEFS, buildBilingualParams, buildParamsForKind } from "./index";
 
 describe("LULU_TEMPLATE_DEFS", () => {
   it("every template passes WACRM's own Meta-rule validator", () => {
@@ -35,8 +35,17 @@ describe("bilingual templates", () => {
   });
   it("bilingual params match the template's variable order", () => {
     expect(buildBilingualParams("WINBACK_30", { name: "Sara Ali", offerText: null, expiryDate: "2026-10-12" })).toEqual([
-      "Sara", "توصيل مجاني", expect.stringMatching(/^12 .+ 2026$/), "Sara", "free delivery", "12 Oct 2026",
+      "Sara", "", expect.stringMatching(/^12 .+ 2026$/), "Sara", "", "12 Oct 2026",
     ]);
     expect(buildBilingualParams("SECOND_ORDER", { name: null })).toEqual(["عزيزنا العميل", "there"]);
+  });
+});
+
+describe("buildParamsForKind", () => {
+  it("puts the offer wording in each language", () => {
+    expect(buildParamsForKind("bi", "VIP_PROTECTION", { name: "Sara", offer: { ar: "خصم 20 ريال", en: "SAR 20 off" } })).toEqual([
+      "Sara", "خصم 20 ريال", "Sara", "SAR 20 off",
+    ]);
+    expect(buildParamsForKind("en", "SECOND_ORDER", { name: "Sara Ali" })).toEqual(["Sara"]);
   });
 });

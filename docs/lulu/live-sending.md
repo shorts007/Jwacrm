@@ -24,3 +24,11 @@ rate-limit / block errors (131048, 131056, 80007, 130429, 368, 131031) or 5 fail
 - Inbound messages within 7 days of a campaign message → REPLIED.
 - `/engagement/results`: funnel, ordered %, revenue, revenue per message, control ordered %, **lift** (pts) and
   estimated extra customers. Lift is only trustworthy with ≥100 control and ≥300 messaged customers.
+
+## Offers (PRD §53, §54, §81)
+- `/engagement/offers`: code (must already work at checkout), type & value, optional AR/EN wording (else generated, e.g.
+  "SAR 20 off with code WB20" / "خصم 20 ريال بالكود WB20"), validity days after the message (capped by end date),
+  start/end, discount budget, eligible price behaviour (default: not Full-price buyers) and stores.
+- Win-back and VIP templates contain `{{offer}}`: those campaigns are **skipped** unless an attached offer is active, in date,
+  worded and under budget; customers outside the offer's eligibility are skipped. There is no default offer text anywhere.
+- Budget used = discount on orders attributed to messages that carried the offer (`lulu_offer_usage()`).
