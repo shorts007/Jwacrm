@@ -6,7 +6,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { Loader2, RefreshCw, Upload } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { ALL_LULU_TEMPLATE_DEFS as LULU_TEMPLATE_DEFS } from "@/lib/lulu";
+import { ALL_LULU_TEMPLATE_DEFS, promoTemplateDefs } from "@/lib/lulu";
+
+// Image-promo templates need a public sample image for Meta's review (served from /public/lulu).
+const LULU_TEMPLATE_DEFS = [
+  ...ALL_LULU_TEMPLATE_DEFS,
+  ...promoTemplateDefs(`${typeof window === "undefined" ? "" : window.location.origin}/lulu/promo-sample.png`),
+];
 
 interface Synced {
   name: string;
@@ -71,7 +77,7 @@ export function LuluTemplatesPanel({ onChanged }: { onChanged?: () => void }) {
         <div>
           <h2 className="text-sm font-semibold text-foreground">Step 1 — LuLu WhatsApp templates</h2>
           <p className="text-xs text-muted-foreground">
-            Creates the {LULU_TEMPLATE_DEFS.length} marketing templates (English, Arabic and bilingual with العربية / English buttons) in the WhatsApp account this app is
+            Creates the {LULU_TEMPLATE_DEFS.length} marketing templates (English, Arabic, bilingual with العربية / English buttons, and the image-promotion templates) in the WhatsApp account this app is
             connected to and sends them to Meta for approval. Approval can take minutes to a day.
           </p>
         </div>

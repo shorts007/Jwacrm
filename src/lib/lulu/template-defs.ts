@@ -132,3 +132,33 @@ export const LULU_BILINGUAL_TEMPLATE_DEFS: TemplatePayload[] = (
 
 export const ALL_LULU_TEMPLATE_DEFS: TemplatePayload[] = [...LULU_TEMPLATE_DEFS, ...LULU_BILINGUAL_TEMPLATE_DEFS];
 
+
+/** Max characters of promotion text per language (keeps the bilingual body under Meta's 1,024 limit). */
+export const PROMO_TEXT_MAX = 380;
+
+/**
+ * Image promotion templates (brand-neutral — usable for any brand's offer). The IMAGE header's
+ * sample is only for Meta's review; every send supplies the promotion's own image.
+ * {{1}} first name, {{2}} promotion text, {{3}} valid-until date.
+ */
+export function promoTemplateDefs(sampleImageUrl: string): TemplatePayload[] {
+  const ar = "مرحباً {{1}}، لدينا عرض خاص لك: {{2}} العرض ساري حتى {{3}}. اطلب الآن!";
+  const en = "Hi {{1}}, we have a special offer for you: {{2}} Valid until {{3}}. Order now!";
+  const sampleAr = ["أحمد", "خصم 20% على جميع الفواكه الطازجة هذا الأسبوع.", "12 أكتوبر 2026"];
+  const sampleEn = ["Ahmed", "20% off all fresh fruit this week.", "12 Oct 2026"];
+  const header = { header_type: "image" as const, header_media_url: sampleImageUrl };
+  return [
+    { name: "promo_image_ar", category: "Marketing", language: "ar", ...header, body_text: ar, footer_text: FOOTER.ar, sample_values: { body: sampleAr } },
+    { name: "promo_image_en", category: "Marketing", language: "en", ...header, body_text: en, footer_text: FOOTER.en, sample_values: { body: sampleEn } },
+    {
+      name: "promo_image_bi",
+      category: "Marketing",
+      language: "ar",
+      ...header,
+      body_text: `${ar}\n\n${en.replace(/\{\{(\d+)\}\}/g, (_, d: string) => `{{${Number(d) + 3}}}`)}`,
+      footer_text: BI_FOOTER,
+      buttons: LANGUAGE_BUTTONS,
+      sample_values: { body: [...sampleAr, ...sampleEn] },
+    },
+  ];
+}

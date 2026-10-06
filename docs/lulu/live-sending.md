@@ -32,3 +32,15 @@ rate-limit / block errors (131048, 131056, 80007, 130429, 368, 131031) or 5 fail
 - Win-back and VIP templates contain `{{offer}}`: those campaigns are **skipped** unless an attached offer is active, in date,
   worded and under budget; customers outside the offer's eligibility are skipped. There is no default offer text anywhere.
 - Budget used = discount on orders attributed to messages that carried the offer (`lulu_offer_usage()`).
+
+## Image promotions (PRD §41)
+- `/engagement/promotions`: paste / drop / choose a product image (PNG/JPEG ≤ 5 MB → public bucket `lulu-promos`),
+  offer text in Arabic + English (≤ 380 chars each, one paragraph), valid-until date, audience (lifecycle, price behaviour,
+  preferred store, VIP, min orders, ordered within N days) with a live estimate, and a WhatsApp-style preview.
+- Saved as a `lulu_campaigns` row of type NEW_OFFER (priority class GENERAL_PROMOTION → after lifecycle campaigns).
+- Sent with three brand-neutral templates `promo_image_ar / _en / _bi` (IMAGE header; created in Campaigns → Step 1 using
+  `/lulu/promo-sample.png` as Meta's review sample). Each send passes the promotion's own image as the header
+  (`templateMessageParams.headerMediaUrl`), so new promotions need no new Meta approval.
+- Same safeguards as every campaign: test first (Step 2), Live switch + Make LIVE (Step 3), daily cap & pacing, STOP list,
+  frequency limits, holdout, results page. Skipped automatically after valid-until or if image/text is missing.
+- Not Meta "catalog" messages: those require a product catalogue connected in Meta Commerce Manager.

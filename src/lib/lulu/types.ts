@@ -48,6 +48,9 @@ export interface CustomerProfile {
   activeComplaint: boolean;
   /** Non-null = suspected shared/fake number; never contacted (see migration 044). */
   suspectReason?: string | null;
+  customerSegment?: string | null;
+  preferredStoreId?: number | null;
+  priceBehaviour?: string | null;
   preferredStore?: string | null;
 }
 
@@ -71,6 +74,8 @@ export interface CampaignConfig {
     atRiskRatio?: number; // cycle-aware multiples of the customer's own interval
     dormantRatio?: number;
     lostRatio?: number;
+    /** NEW_OFFER (promotion) audience; empty / missing fields mean "everyone". */
+    audience?: PromoAudience;
   };
 }
 
@@ -132,3 +137,13 @@ export const DEFAULT_POLICY: ContactPolicy = {
     "GENERAL_PROMOTION",
   ],
 };
+
+export interface PromoAudience {
+  stages?: LifecycleStage[];
+  priceBehaviour?: string[]; // Offer-driven | Mixed | Full-price | Unknown
+  stores?: string[]; // store ids
+  vipOnly?: boolean;
+  minOrders?: number;
+  /** Only customers who ordered within the last N days. */
+  orderedWithinDays?: number;
+}

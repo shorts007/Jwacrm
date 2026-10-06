@@ -1,4 +1,4 @@
-import type { CampaignConfig, CustomerProfile, LifecycleStage } from "./types";
+import type { CampaignConfig, CustomerProfile, LifecycleStage, PromoAudience } from "./types";
 
 const MS_DAY = 86_400_000;
 
@@ -169,6 +169,9 @@ export function matchingCampaigns(
         if (p.vipFlag && (stage === "AT_RISK" || stage === "DORMANT"))
           out.push({ campaign: c, reason: `VIP inactive (${gap} days)` });
         break;
+      case "NEW_OFFER":
+        if (audienceMatches(c.params.audience, p, stage, gap)) out.push({ campaign: c, reason: `Promotion: ${c.name ?? c.code}` });
+        break;
       default:
         // Event / manual campaigns (first-order, thank-you, new offer,
         // selected-customer) are enqueued by their own producers, not by
@@ -183,4 +186,24 @@ function inactivityReason(gap: number | null, ratio: number | null, p: CustomerP
   if (ratio !== null && p.medianIntervalDays)
     return `${gap} days since order vs ${p.medianIntervalDays}-day normal cycle`;
   return `${gap} days since last order`;
+}
+
+/** Does this customer fall inside a promotion's audience? Empty / missing filters match everyone. */
+export function audienceMatches(
+  a: PromoAudience | undefined,
+  p: CustomerProfile,
+  stage: LifecycleStage,
+  gap: number | null,
+): boolean {
+  if (!a) return true;
+  if (a.stages?.length) {
+    const s = stage === "FIRST_ORDER" ? "NEW" : stage;
+    if (!a.stages.includes(stage) && !a.stages.includes(s as LifecycleStage)) return false;
+  }
+  if (a.priceBehaviour?.length && !a.priceBehaviour.includes(p.priceBehaviour ?? "Unknown")) return false;
+  if (a.stores?.length && !a.stores.includes(p.preferredStoreId == null ? "" : String(p.preferredStoreId))) return false;
+  if (a.vipOnly && !p.vipFlag) return false;
+  if (a.minOrders && p.totalOrders < a.minOrders) return false;
+  if (a.orderedWithinDays && (gap === null || gap > a.orderedWithinDays)) return false;
+  return true;
 }

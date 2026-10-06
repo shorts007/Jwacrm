@@ -51,13 +51,17 @@ export interface LiveCampaign extends CampaignConfig {
   templateBi: string | null;
   holdoutPct: number;
   attributionDays: number;
+  promoImageUrl: string | null;
+  promoTextAr: string | null;
+  promoTextEn: string | null;
+  promoValidUntil: string | null;
 }
 
 /** Campaigns allowed to send to customers right now: Live switch on, mode LIVE, not paused/stopped. */
 export async function loadLiveCampaigns(db: SupabaseClient, accountId: string): Promise<LiveCampaign[]> {
   const { data, error } = await db
     .from("lulu_campaigns")
-    .select("id, campaign_code, name, campaign_type, rule_params, offer_id, active, mode, status, template_name_ar, template_name_en, template_name_bilingual, holdout_pct, attribution_days")
+    .select("id, campaign_code, name, campaign_type, rule_params, offer_id, active, mode, status, template_name_ar, template_name_en, template_name_bilingual, holdout_pct, attribution_days, promo_image_url, promo_text_ar, promo_text_en, promo_valid_until")
     .eq("account_id", accountId)
     .eq("active", true)
     .eq("mode", "LIVE");
@@ -71,6 +75,10 @@ export async function loadLiveCampaigns(db: SupabaseClient, accountId: string): 
       templateBi: (r.template_name_bilingual as string | null) ?? null,
       holdoutPct: Number(r.holdout_pct ?? 0),
       attributionDays: Number(r.attribution_days ?? 7),
+      promoImageUrl: (r.promo_image_url as string | null) ?? null,
+      promoTextAr: (r.promo_text_ar as string | null) ?? null,
+      promoTextEn: (r.promo_text_en as string | null) ?? null,
+      promoValidUntil: (r.promo_valid_until as string | null) ?? null,
     }));
 }
 
@@ -188,4 +196,15 @@ export async function loadOfferDiscountUsed(db: SupabaseClient, accountId: strin
   const { data, error } = await db.rpc("lulu_offer_usage", { p_account: accountId });
   if (error) throw error;
   return new Map(((data ?? []) as { offer_id: string; discount_cost: number | string }[]).map((r) => [r.offer_id, Number(r.discount_cost)]));
+}
+
+/** Why a promotion (NEW_OFFER) cannot send today, or null. */
+export function promoBlockReason(c: LiveCampaign, now: Date): string | null {
+  if (c.type !== "NEW_OFFER") return null;
+  if (!c.promoImageUrl) return "promotion has no image";
+  if (!c.promoTextAr?.trim() || !c.promoTextEn?.trim()) return "promotion text missing (Arabic and English)";
+  const today = new Date(now.getTime() + 3 * 3_600_000).toISOString().slice(0, 10); // Riyadh date
+  if (!c.promoValidUntil) return "promotion has no valid-until date";
+  if (c.promoValidUntil < today) return `promotion ended ${c.promoValidUntil}`;
+  return null;
 }

@@ -12,10 +12,12 @@ export const DEFAULT_TEMPLATE_NAMES: Partial<Record<CampaignType, { ar: string; 
   LOST_60: { ar: "lulu_lost_60_ar", en: "lulu_lost_60_en", bi: "lulu_lost_60_bi" },
   SECOND_ORDER: { ar: "lulu_second_order_ar", en: "lulu_second_order_en", bi: "lulu_second_order_bi" },
   VIP_PROTECTION: { ar: "lulu_vip_care_ar", en: "lulu_vip_care_en", bi: "lulu_vip_care_bi" },
+  NEW_OFFER: { ar: "promo_image_ar", en: "promo_image_en", bi: "promo_image_bi" },
 };
 
 /** Number of positional body variables each campaign's template takes: {{1}}=name, {{2}}=offer, {{3}}=expiry. */
-const VARIABLES: Partial<Record<CampaignType, ("name" | "offer" | "expiry")[]>> = {
+const VARIABLES: Partial<Record<CampaignType, ("name" | "offer" | "expiry" | "promo")[]>> = {
+  NEW_OFFER: ["name", "promo", "expiry"],
   INACTIVE_15: ["name"],
   WINBACK_30: ["name", "offer", "expiry"],
   LOST_60: ["name"],
@@ -29,6 +31,8 @@ export interface MessageContext {
   offerText?: string | null;
   /** YYYY-MM-DD */
   expiryDate?: string | null;
+  /** Promotion text (NEW_OFFER). */
+  promoText?: string | null;
 }
 
 const FALLBACK_NAME: Record<MessageLanguage, string> = { ar: "عزيزنا العميل", en: "there" };
@@ -59,6 +63,7 @@ export function buildTemplateParams(type: CampaignType, ctx: MessageContext): st
     if (v === "name") return displayName(ctx.name, ctx.language);
     // No default offer wording: a message must never promise an offer that does not exist.
     if (v === "offer") return cleanVariable(ctx.offerText ?? "");
+    if (v === "promo") return cleanVariable(ctx.promoText ?? "");
     return ctx.expiryDate ? formatExpiry(ctx.expiryDate, ctx.language) : "";
   });
 }
@@ -114,9 +119,20 @@ export function chooseTemplateKind(
 export function buildParamsForKind(
   kind: TemplateChoiceKind,
   type: CampaignType,
-  ctx: { name?: string | null; expiryDate?: string | null; offer?: { ar: string; en: string } | null },
+  ctx: {
+    name?: string | null;
+    expiryDate?: string | null;
+    offer?: { ar: string; en: string } | null;
+    promo?: { ar: string; en: string } | null;
+  },
 ): string[] {
   const one = (language: MessageLanguage) =>
-    buildTemplateParams(type, { name: ctx.name, language, expiryDate: ctx.expiryDate ?? null, offerText: ctx.offer?.[language] ?? null });
+    buildTemplateParams(type, {
+      name: ctx.name,
+      language,
+      expiryDate: ctx.expiryDate ?? null,
+      offerText: ctx.offer?.[language] ?? null,
+      promoText: ctx.promo?.[language] ?? null,
+    });
   return kind === "bi" ? [...one("ar"), ...one("en")] : one(kind);
 }
