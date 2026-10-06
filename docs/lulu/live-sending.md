@@ -1,0 +1,16 @@
+# Live sending (customers)
+
+Driver: n8n workflow `docs/lulu/n8n/lulu-daily-sender.workflow.json` (daily 17:00 Riyadh + manual).
+
+1. `POST /api/v1/lulu/campaigns/prepare` (scope `messages:send`) — builds today's queue from LIVE campaigns
+   (Live switch on + mode LIVE + not paused): next-best-action engine over all active customers, STOP list,
+   frequency caps, already-received (60 days), daily cap. Inserts SCHEDULED actions (idempotent per campaign+customer+day).
+2. `POST /api/v1/lulu/campaigns/send-next` — sends ONE message and returns `next_wait_seconds`.
+   Gap before message n of the day = base + increment × (n−1) → 60 s, 61 s, 62 s … (Campaigns → Step 3).
+   100 messages ≈ 10,950 s ≈ 3 h 3 min.
+
+Guards (server-side, cannot be bypassed from n8n): quiet hours 22:00–09:00, order data < 36 h old, Step 0 (STOP) active,
+approved template, customer re-checked right before sending (opt-out, suspect, ordered since queuing, caps),
+atomic claim (SCHEDULED → SENDING), minimum spacing, daily cap, auto-pause of all LIVE campaigns on Meta
+rate-limit / block errors (131048, 131056, 80007, 130429, 368, 131031) or 5 failures in a row.
+"Pause all" in the app cancels today's remaining queue.
