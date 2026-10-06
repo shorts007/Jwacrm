@@ -53,6 +53,7 @@ export interface ProfileRow {
   avg_discount_pct: number | null;
   total_discount: number | null;
   usual_items: UsualItem[] | null;
+  items_as_of: string | null;
 }
 
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
@@ -136,6 +137,7 @@ export function parseCustomer(raw: unknown, now: Date): ProfileRow | string {
     avg_discount_pct: num(r.avg_discount_pct),
     total_discount: num(r.total_discount),
     usual_items: parseUsualItems(r.usual_items),
+    items_as_of: date(r.items_as_of),
   };
 
   const asProfile: CustomerProfile = {

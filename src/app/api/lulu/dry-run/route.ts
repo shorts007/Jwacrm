@@ -25,7 +25,7 @@ export const maxDuration = 60;
 const PAGE = 1000;
 const PARALLEL = 8;
 const COLUMNS =
-  'customer_id, mobile, name, language, birthday, last_order_date, total_orders, total_sales, median_interval_days, vip_flag, marketing_opt_in, active_complaint, suspect_reason, preferred_store, price_sensitivity, customer_segment, preferred_store_id, usual_items';
+  'customer_id, mobile, name, language, birthday, last_order_date, total_orders, total_sales, median_interval_days, vip_flag, marketing_opt_in, active_complaint, suspect_reason, preferred_store, price_sensitivity, customer_segment, preferred_store_id, usual_items, items_as_of';
 
 export async function POST() {
   try {
