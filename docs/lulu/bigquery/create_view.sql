@@ -56,8 +56,8 @@ WITH params AS (
     -- PHASE 1 FOCUS: Jeddah. City names are unreliable (copies of the same order say 'Jeddah' or a district
     -- such as 'Al Bawadi', 'Al Safa'…), so the focus is defined by STORE: a customer is kept if their latest
     -- order was fulfilled by one of these stores. Jeddah stores: 3805 Amir Fawaz, 3806 Kilo 7, 3808 Hamdaniya,
-    -- 3809 Madeena Road, 3810 Al Marwa, 3814 Baghdadiya, 3818 AzizMall. (3821 Russaifa is NOT included until confirmed.)
-    [3805, 3806, 3808, 3809, 3810, 3814, 3818] AS focus_storeids,
+    -- 3809 Madeena Road, 3810 Al Marwa, 3814 Baghdadiya, 3818 AzizMall, 3821 Russaifa (confirmed).
+    [3805, 3806, 3808, 3809, 3810, 3814, 3818, 3821] AS focus_storeids,
     'Jeddah' AS focus_region_name,     -- shown as the customer's city when the store matches
     -- Fallback used ONLY when focus_storeids is empty: latest order's city (case-insensitive). [] = everyone.
     ['jeddah'] AS focus_cities,
@@ -120,10 +120,10 @@ picking_store AS (
   SELECT order_number_str, ARRAY_AGG(item_store ORDER BY n DESC LIMIT 1)[OFFSET(0)] AS item_store
   FROM (
     SELECT REGEXP_EXTRACT(job_number, r'^Lulu-(\d+)') AS order_number_str,
-           CAST(REGEXP_EXTRACT(store_name_1, r'^(\d{4})') AS INT64) AS item_store,
+           CAST(store_reference AS INT64) AS item_store,   -- the order table's storeid IS this store_reference
            COUNT(*) AS n
     FROM `myecomlulu.jackpot.instaleap_raw`
-    WHERE REGEXP_CONTAINS(store_name_1, r'^\d{4}') AND job_number IS NOT NULL
+    WHERE store_reference IS NOT NULL AND job_number IS NOT NULL
     GROUP BY order_number_str, item_store
   )
   GROUP BY order_number_str
@@ -222,11 +222,12 @@ items AS (
     REGEXP_EXTRACT(i.job_number, r'^Lulu-(\d+)') AS order_number_str,  -- strips 'Lulu-' prefix and 'INP1' suffix
     -- regex instead of JSON_VALUE: BigQuery has no SAFE.JSON_VALUE and JSON_VALUE errors on malformed JSON
     SUBSTR(REGEXP_EXTRACT(i.attributes, r'"category"\s*:\s*"(\d+)"'), 1, 3) AS dept,
-    IFNULL(i.price, 0) * IFNULL(i.found_quantity, 0) AS item_sales
+    -- found_quantity is often empty on older rows: fall back to the ordered quantity
+    IFNULL(i.price, 0) * COALESCE(i.found_quantity, i.quantity, 0) AS item_sales
   FROM `myecomlulu.jackpot.instaleap_raw` AS i
   CROSS JOIN params AS p
   WHERE i.created_at >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL p.item_lookback_days DAY)
-    AND i.job_state = 'FINISHED'
+    AND NOT REGEXP_CONTAINS(UPPER(IFNULL(i.job_state, '')), r'CANCEL')
   QUALIFY ROW_NUMBER() OVER (PARTITION BY i.id ORDER BY i.updated_at DESC) = 1
 ),
 joined AS (

@@ -135,14 +135,25 @@ export function rateTable(rows: InsightRow[], grp: string, num: string, den: str
   return byDim;
 }
 
-/** Retention cohorts: cohort month → [share active at offset 0..N]. */
-export function cohortMatrix(rows: InsightRow[]) {
+const addMonths = (ym: string, k: number) => {
+  const [y, m] = ym.split("-").map(Number);
+  const d = new Date(Date.UTC(y, m - 1 + k, 1));
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+};
+
+/**
+ * Retention cohorts: cohort month → [share active at offset 0..N].
+ * `partialMonth` (YYYY-MM, the month-to-date) is dropped so the newest diagonal
+ * isn't mistaken for a retention collapse.
+ */
+export function cohortMatrix(rows: InsightRow[], partialMonth: string | null = null) {
   const idx = indexGroup(rows, "cohort");
   return [...idx.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([cohort, byOff]) => {
       const size = byOff.get("0")?.customers ?? 0;
-      const maxOff = Math.max(...[...byOff.keys()].map(Number));
+      let maxOff = Math.max(...[...byOff.keys()].map(Number));
+      while (maxOff > 0 && partialMonth && addMonths(cohort, maxOff) >= partialMonth) maxOff--;
       const shares = Array.from({ length: maxOff + 1 }, (_, i) =>
         size ? (byOff.get(String(i))?.customers ?? 0) / size : 0,
       );

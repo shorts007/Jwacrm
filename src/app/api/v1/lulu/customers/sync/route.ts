@@ -15,6 +15,7 @@
 //
 // Rules
 //   - Max 500 customers per request (key limit is 120 req/min).
+//   - Phones in lulu_opt_outs (replied STOP) are always stored opted-out.
 //   - Opt-out is STICKY: a profile already marked marketing_opt_in=false
 //     can never be flipped back to true by a sync (a customer's STOP must
 //     win over a stale warehouse snapshot). Re-opt-in is a manual action.
@@ -125,6 +126,19 @@ export async function POST(request: Request) {
       for (const r of data ?? []) optedOut.add(r.customer_id as string);
     }
     for (const r of rows) if (optedOut.has(r.customer_id)) r.marketing_opt_in = false;
+
+    // Phones that replied STOP on WhatsApp (even before they were a synced customer).
+    const stopDigits = new Set<string>();
+    for (let i = 0; i < rows.length; i += LOOKUP_CHUNK) {
+      const digits = rows.slice(i, i + LOOKUP_CHUNK).map((r) => r.mobile.replace(/\D/g, ''));
+      const { data } = await db
+        .from('lulu_opt_outs')
+        .select('phone_digits')
+        .eq('account_id', accountId)
+        .in('phone_digits', digits);
+      for (const r of data ?? []) stopDigits.add(r.phone_digits as string);
+    }
+    for (const r of rows) if (stopDigits.has(r.mobile.replace(/\D/g, ''))) r.marketing_opt_in = false;
 
     // 3. Link to WACRM contacts by normalized phone (digits-only column).
     const contactByDigits = new Map<string, string>();

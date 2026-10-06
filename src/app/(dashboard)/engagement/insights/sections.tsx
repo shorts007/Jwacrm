@@ -194,17 +194,22 @@ export function DimMonthly({
   grp,
   metric,
   label,
+  asOf,
   months = 6,
 }: {
   rows: InsightRow[];
   grp: "store_monthly" | "channel_monthly";
   metric: DimMetric;
   label: (d: string) => string;
+  asOf: string | null;
   months?: number;
 }) {
   const { months: ms, table } = dimMonthTable(rows, grp, metric, months);
   if (table.length === 0) return <p className="text-sm text-muted-foreground">No data.</p>;
-  const lastIdx = ms.length - 1;
+  // Share and MoM always compare COMPLETE months; the month-to-date column is shown but not compared.
+  const mtd = asOf ? asOf.slice(0, 7) : null;
+  const lastIdx = ms[ms.length - 1] === mtd ? ms.length - 2 : ms.length - 1;
+  table.sort((a, b) => (b.values[lastIdx] ?? 0) - (a.values[lastIdx] ?? 0));
   const total = table.reduce((a, r) => a + (r.values[lastIdx] ?? 0), 0) || 1;
   const chart = ms.map((m, i) => {
     const point: Record<string, string | number> = { label: monthLabel(m) };
@@ -233,9 +238,12 @@ export function DimMonthly({
             <tr>
               <th className="px-2 py-1.5 font-medium">{grp === "store_monthly" ? "Store" : "Channel"}</th>
               {ms.map((m) => (
-                <th key={m} className="px-2 py-1.5 text-right font-medium">{monthLabel(m)}</th>
+                <th key={m} className="px-2 py-1.5 text-right font-medium">
+                  {monthLabel(m)}
+                  {m === mtd ? " (MTD)" : ""}
+                </th>
               ))}
-              <th className="px-2 py-1.5 text-right font-medium">Share (latest)</th>
+              <th className="px-2 py-1.5 text-right font-medium">Share {lastIdx >= 0 ? monthLabel(ms[lastIdx]) : ""}</th>
               <th className="px-2 py-1.5 text-right font-medium">MoM</th>
             </tr>
           </thead>
@@ -244,7 +252,9 @@ export function DimMonthly({
               <tr key={r.dim} className="border-t border-border">
                 <td className="px-2 py-1.5 text-foreground">{label(r.dim)}</td>
                 {r.values.map((v, i) => (
-                  <td key={i} className="px-2 py-1.5 text-right tabular-nums">{n0(v)}</td>
+                  <td key={i} className={cn("px-2 py-1.5 text-right tabular-nums", ms[i] === mtd && "text-muted-foreground")}>
+                    {n0(v)}
+                  </td>
                 ))}
                 <td className="px-2 py-1.5 text-right tabular-nums">{pct((r.values[lastIdx] ?? 0) / total)}</td>
                 <td className="px-2 py-1.5 text-right">
@@ -254,7 +264,9 @@ export function DimMonthly({
             ))}
           </tbody>
         </table>
-        <p className="mt-1 text-xs text-muted-foreground">The latest column may be a partial month (data up to the as-of date).</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Share and month-on-month change compare complete months only; MTD = month to date.
+        </p>
       </div>
     </div>
   );
@@ -329,8 +341,8 @@ export function RateBlocks({
   );
 }
 
-export function CohortHeatmap({ rows }: { rows: InsightRow[] }) {
-  const m = cohortMatrix(rows);
+export function CohortHeatmap({ rows, asOf }: { rows: InsightRow[]; asOf: string | null }) {
+  const m = cohortMatrix(rows, asOf ? asOf.slice(0, 7) : null);
   if (m.length === 0) return <p className="text-sm text-muted-foreground">No cohort data.</p>;
   const maxOff = Math.max(...m.map((r) => r.shares.length - 1));
   return (
@@ -451,7 +463,7 @@ export function FrequencyTable({ rows }: { rows: InsightRow[] }) {
   );
 }
 
-export function ProductsTable({ rows }: { rows: InsightRow[] }) {
+export function ProductsTable({ rows, rankBy = "revenue" }: { rows: InsightRow[]; rankBy?: "revenue" | "customers" }) {
   const byName = new Map<string, Record<string, number>>();
   for (const r of rows) {
     if (r.grp !== "product") continue;
@@ -468,7 +480,8 @@ export function ProductsTable({ rows }: { rows: InsightRow[] }) {
       orders: m.orders ?? 0,
       customers: m.customers ?? 0,
     }))
-    .sort((a, b) => b.revenue - a.revenue);
+    .sort((a, b) => (rankBy === "customers" ? b.customers - a.customers || b.revenue - a.revenue : b.revenue - a.revenue))
+    .slice(0, 40);
   if (list.length === 0) return <p className="text-sm text-muted-foreground">No product data.</p>;
   return (
     <div className="overflow-x-auto">

@@ -322,5 +322,12 @@ GROUP BY 1, 2 ORDER BY orders DESC LIMIT 20;
 --     WHERE number IN (SELECT number FROM `myecomlulu.jackpot.ksa_jackpot` GROUP BY number HAVING COUNT(DISTINCT storeid) > 1 LIMIT 5)
 --     ORDER BY number, date_placed;
 
+-- 28) Picking data quality by month: job states and how often found_quantity is filled.
+SELECT DATE_TRUNC(DATE(created_at), MONTH) AS month, job_state, COUNT(*) AS item_rows,
+       ROUND(100 * COUNTIF(found_quantity IS NOT NULL) / COUNT(*), 1) AS pct_found_filled,
+       ROUND(100 * COUNTIF(store_reference IS NOT NULL) / COUNT(*), 1) AS pct_with_store_reference
+FROM `myecomlulu.jackpot.instaleap_raw`
+GROUP BY month, job_state ORDER BY month, item_rows DESC;
+
 -- Supabase (SQL editor, not BigQuery): how many profiles are stale / when were they last written?
 --   select active, date_trunc('hour', synced_at) as last_written, count(*) from lulu_customer_profiles group by 1, 2 order by 2 desc;

@@ -9,6 +9,7 @@ import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 import { TestPanel } from "./campaigns-test-panel";
 import { LuluTemplatesPanel } from "./lulu-templates-panel";
+import { OptOutPanel } from "./opt-out-panel";
 import { DEFAULT_CAMPAIGN_ROWS, PRIORITY_CLASS_BY_TYPE, type CampaignType, type DryRunReport } from "@/lib/lulu";
 
 interface CampaignRow {
@@ -193,6 +194,8 @@ export default function CampaignsPage() {
           </table>
         </div>
       )}
+
+      <OptOutPanel />
 
       <LuluTemplatesPanel />
 

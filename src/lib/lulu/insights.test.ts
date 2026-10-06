@@ -63,6 +63,8 @@ describe("insights helpers", () => {
     expect(rt.find((x) => x.dim_value === "yes")!.rate).toBe(0.25);
     expect(rt.find((x) => x.dim_value === "no")!.rate).toBe(0.4);
     expect(cohortMatrix(rows)[0]).toEqual({ cohort: "2026-01", size: 100, shares: [1, 0.3, 0.2] });
+    // 2026-03 is month-to-date → offset 2 dropped
+    expect(cohortMatrix(rows, "2026-03")[0].shares).toEqual([1, 0.3]);
     expect(dowHourGrid(rows)[5][19]).toBe(42);
     expect(dataAsOf(rows)).toBe("2026-10-05T15:08:06Z");
   });
