@@ -15,10 +15,12 @@ export const DEFAULT_TEMPLATE_NAMES: Partial<Record<CampaignType, { ar: string; 
   NEW_OFFER: { ar: "promo_image_ar", en: "promo_image_en", bi: "promo_image_bi" },
   REPLENISHMENT: { ar: "restock_ar", en: "restock_en", bi: "restock_bi" },
   BUY_AGAIN: { ar: "buy_again_ar", en: "buy_again_en", bi: "buy_again_bi" },
+  CROSS_SELL: { ar: "cross_sell_ar", en: "cross_sell_en", bi: "cross_sell_bi" },
 };
 
 /** Number of positional body variables each campaign's template takes: {{1}}=name, {{2}}=offer, {{3}}=expiry. */
-const VARIABLES: Partial<Record<CampaignType, ("name" | "offer" | "expiry" | "promo" | "items")[]>> = {
+const VARIABLES: Partial<Record<CampaignType, ("name" | "offer" | "expiry" | "promo" | "items" | "product")[]>> = {
+  CROSS_SELL: ["name", "items", "product"],
   NEW_OFFER: ["name", "promo", "expiry"],
   REPLENISHMENT: ["name", "items"],
   BUY_AGAIN: ["name", "items"],
@@ -37,8 +39,10 @@ export interface MessageContext {
   expiryDate?: string | null;
   /** Promotion text (NEW_OFFER). */
   promoText?: string | null;
-  /** Product names for REPLENISHMENT / BUY_AGAIN. */
+  /** Product names for REPLENISHMENT / BUY_AGAIN (CROSS_SELL: [anchor]). */
   items?: string[] | null;
+  /** CROSS_SELL: the suggested product. */
+  product?: string | null;
 }
 
 /** "A, B and C" / "A، B و C" — product names stay as in the catalogue (English). Max 3, each ≤ 40 chars. */
@@ -80,6 +84,7 @@ export function buildTemplateParams(type: CampaignType, ctx: MessageContext): st
     if (v === "offer") return cleanVariable(ctx.offerText ?? "");
     if (v === "promo") return cleanVariable(ctx.promoText ?? "");
     if (v === "items") return itemsText(ctx.items, ctx.language);
+    if (v === "product") return itemsText(ctx.product ? [ctx.product] : [], ctx.language);
     return ctx.expiryDate ? formatExpiry(ctx.expiryDate, ctx.language) : "";
   });
 }
@@ -141,6 +146,7 @@ export function buildParamsForKind(
     offer?: { ar: string; en: string } | null;
     promo?: { ar: string; en: string } | null;
     items?: string[] | null;
+    product?: string | null;
   },
 ): string[] {
   const one = (language: MessageLanguage) =>
@@ -151,6 +157,7 @@ export function buildParamsForKind(
       offerText: ctx.offer?.[language] ?? null,
       promoText: ctx.promo?.[language] ?? null,
       items: ctx.items ?? null,
+      product: ctx.product ?? null,
     });
   return kind === "bi" ? [...one("ar"), ...one("en")] : one(kind);
 }

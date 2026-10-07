@@ -30,6 +30,7 @@ export interface Profile360 extends DryRunProfileRow {
   city: string | null;
   synced_at: string | null;
   active: boolean;
+  cross_sell?: { anchor: string; product: string; confidence: number; lift: number } | null;
 }
 
 export interface Touch360 {
@@ -68,7 +69,7 @@ export interface Customer360 {
 }
 
 const PROFILE_SELECT =
-  "customer_id, mobile, name, language, birthday, first_order_date, last_order_date, total_orders, total_sales, average_order_value, orders_30d, orders_90d, median_interval_days, stddev_interval_days, vip_flag, marketing_opt_in, active_complaint, suspect_reason, preferred_store, preferred_store_id, preferred_channel, preferred_category, stores_used, price_sensitivity, discount_order_share, avg_discount_pct, total_discount, customer_segment, rfm_recency, rfm_frequency, rfm_monetary, lifecycle_stage, city, synced_at, active, usual_items, items_as_of";
+  "customer_id, mobile, name, language, birthday, first_order_date, last_order_date, total_orders, total_sales, average_order_value, orders_30d, orders_90d, median_interval_days, stddev_interval_days, vip_flag, marketing_opt_in, active_complaint, suspect_reason, preferred_store, preferred_store_id, preferred_channel, preferred_category, stores_used, price_sensitivity, discount_order_share, avg_discount_pct, total_discount, customer_segment, rfm_recency, rfm_frequency, rfm_monetary, lifecycle_stage, city, synced_at, active, usual_items, items_as_of, cross_sell";
 
 export const phoneDigits = (s: string | null | undefined) => (s ?? "").replace(/\D/g, "");
 

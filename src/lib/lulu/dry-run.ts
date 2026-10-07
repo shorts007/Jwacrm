@@ -1,6 +1,7 @@
 import { DEFAULT_LOST_MAX_DAYS, daysSince, lifecycleStage, thresholdsFromCampaigns } from "./lifecycle";
 import { decideNextBestAction } from "./next-best-action";
 import type {
+  CrossSell,
   UsualItem,
   CampaignConfig,
   ContactPolicy,
@@ -29,6 +30,7 @@ export interface DryRunProfileRow {
   preferred_store_id?: number | null;
   usual_items?: UsualItem[] | null;
   items_as_of?: string | null;
+  cross_sell?: CrossSell | null;
 }
 
 export function profileFromRow(r: DryRunProfileRow): CustomerProfile {
@@ -52,6 +54,7 @@ export function profileFromRow(r: DryRunProfileRow): CustomerProfile {
     priceBehaviour: r.price_sensitivity ?? null,
     usualItems: r.usual_items ?? undefined,
     itemsAsOf: r.items_as_of ?? null,
+    crossSell: r.cross_sell ?? null,
   };
 }
 

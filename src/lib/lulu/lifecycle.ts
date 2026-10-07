@@ -193,6 +193,16 @@ export function matchingCampaigns(
           out.push({ campaign: c, reason: `${stage === "AT_RISK" ? "At risk" : stage} — usual items: ${items.slice(0, 2).map((i) => i.name).join(", ")}` });
         break;
       }
+      case "CROSS_SELL": {
+        // Regular, recent customers only — a suggestion, not a reminder — timed before their next shop.
+        if (!itemDataCovers(p) || !p.crossSell) break;
+        const stages = c.params.stages?.length ? c.params.stages : (["ACTIVE"] as LifecycleStage[]);
+        if (!stages.includes(stage)) break;
+        const rhythm = p.totalOrders >= MIN_ORDERS_FOR_CYCLE && p.medianIntervalDays ? p.medianIntervalDays : 0;
+        if (gap !== null && gap < Math.max(c.params.minDaysSinceOrder ?? 2, (c.params.cycleRatio ?? 0.7) * rhythm)) break;
+        out.push({ campaign: c, reason: `Often bought with ${p.crossSell.anchor}: ${p.crossSell.product} (×${p.crossSell.lift.toFixed(1)} more likely together)` });
+        break;
+      }
       case "NEW_OFFER":
         if (audienceMatches(c.params.audience, p, stage, gap)) out.push({ campaign: c, reason: `Promotion: ${c.name ?? c.code}` });
         break;

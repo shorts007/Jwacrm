@@ -163,7 +163,8 @@ export async function POST(request: Request) {
       expiryDate,
       offer: offerTexts,
       promo: isPromo ? { ar: campaign.promo_text_ar!, en: campaign.promo_text_en! } : null,
-      items: ['Banana Ecuador 1 kg', 'LuLu White Eggs Large 30 pcs'],
+      items: campaign.campaign_type === 'CROSS_SELL' ? ['Almarai Fresh Milk Full Fat 2.85 Litre'] : ['Banana Ecuador 1 kg', 'LuLu White Eggs Large 30 pcs'],
+      product: 'Lusine Sliced Milk Bread 600 g',
     });
     // Send exactly as many variables as the approved template declares (hello_world has none).
     const varCount = new Set([...(chosen.body_text ?? '').matchAll(/\{\{(\d+)\}\}/g)].map((m) => m[1])).size;

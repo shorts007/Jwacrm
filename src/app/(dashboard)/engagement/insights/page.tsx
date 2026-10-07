@@ -16,6 +16,7 @@ import {
   DeptTable,
   DimMonthly,
   DowHourHeatmap,
+  PairsTable,
   FrequencyTable,
   MonthKpis,
   ProductsTable,
@@ -262,6 +263,10 @@ export default function CustomerInsightsPage() {
             }
           >
             <ProductsTable rows={rows} rankBy={rankBy} />
+          </Section>
+
+          <Section title="Frequently bought together" hint="Product pairs that land in the same basket far more often than chance.">
+            <PairsTable rows={rows} />
           </Section>
 
           <Section title="Departments month-on-month">

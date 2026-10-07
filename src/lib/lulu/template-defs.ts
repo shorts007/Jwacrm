@@ -195,4 +195,32 @@ export const PERSONAL_TEMPLATE_DEFS: TemplatePayload[] = [
   ),
 ];
 
-export const ALL_LULU_TEMPLATE_DEFS: TemplatePayload[] = [...LULU_TEMPLATE_DEFS, ...LULU_BILINGUAL_TEMPLATE_DEFS, ...PERSONAL_TEMPLATE_DEFS];
+/** Cross-sell (brand-neutral). {{1}} first name, {{2}} product they buy, {{3}} product often bought with it. */
+function crossSellSet(): TemplatePayload[] {
+  const ar = "مرحباً {{1}}، العملاء الذين يشترون {{2}} يضيفون غالباً {{3}}. جرّبه مع طلبك القادم!";
+  const en = "Hi {{1}}, customers who buy {{2}} often add {{3}} too. Try it with your next order!";
+  const sAr = ["أحمد", "Almarai Fresh Milk Full Fat 2.85 Litre", "Lusine Sliced Milk Bread 600 g"];
+  const sEn = ["Ahmed", "Almarai Fresh Milk Full Fat 2.85 Litre", "Lusine Sliced Milk Bread 600 g"];
+  return [
+    { name: "cross_sell_ar", category: "Marketing", language: "ar", body_text: ar, footer_text: FOOTER.ar, sample_values: { body: sAr } },
+    { name: "cross_sell_en", category: "Marketing", language: "en", body_text: en, footer_text: FOOTER.en, sample_values: { body: sEn } },
+    {
+      name: "cross_sell_bi",
+      category: "Marketing",
+      language: "ar",
+      body_text: `${ar}\n\n${en.replace(/\{\{(\d+)\}\}/g, (_, d: string) => `{{${Number(d) + 3}}}`)}`,
+      footer_text: BI_FOOTER,
+      buttons: LANGUAGE_BUTTONS,
+      sample_values: { body: [...sAr, ...sEn] },
+    },
+  ];
+}
+
+export const CROSS_SELL_TEMPLATE_DEFS: TemplatePayload[] = crossSellSet();
+
+export const ALL_LULU_TEMPLATE_DEFS: TemplatePayload[] = [
+  ...LULU_TEMPLATE_DEFS,
+  ...LULU_BILINGUAL_TEMPLATE_DEFS,
+  ...PERSONAL_TEMPLATE_DEFS,
+  ...CROSS_SELL_TEMPLATE_DEFS,
+];

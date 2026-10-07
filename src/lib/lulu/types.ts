@@ -23,7 +23,8 @@ export type CampaignType =
   | "NEW_OFFER"
   | "SELECTED_CUSTOMER_OFFER"
   | "REPLENISHMENT"
-  | "BUY_AGAIN";
+  | "BUY_AGAIN"
+  | "CROSS_SELL";
 
 /** PRD §56 priority classes. Order is configurable via lulu_contact_policy. */
 export type PriorityClass =
@@ -55,6 +56,8 @@ export interface CustomerProfile {
   priceBehaviour?: string | null;
   /** Replenishable products this customer buys repeatedly (V2 personalisation). */
   usualItems?: UsualItem[];
+  /** Best "often bought together" product they never bought (V2 cross-sell). */
+  crossSell?: CrossSell | null;
   /** Last day covered by item (picking) data — YYYY-MM-DD. */
   itemsAsOf?: string | null;
   preferredStore?: string | null;
@@ -175,4 +178,13 @@ export interface UsualItem {
   last: string;
   /** usual days between purchases */
   every: number;
+}
+
+export interface CrossSell {
+  /** Product the customer buys repeatedly … */
+  anchor: string;
+  /** … and the product often bought with it that they have never bought. */
+  product: string;
+  confidence: number;
+  lift: number;
 }

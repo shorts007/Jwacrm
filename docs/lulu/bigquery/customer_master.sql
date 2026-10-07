@@ -54,6 +54,11 @@ WITH params AS (
     150  AS max_item_price,            -- skip expensive one-off items (phones, appliances)
     20   AS min_product_buyers,        -- product must be bought by at least N customers …
     0.20 AS min_repeat_rate,           -- … and re-bought by >= 20 % of them (a "replenishable" product)
+    -- Cross-sell ("often bought together"):
+    30   AS min_pair_product_orders,   -- both products appear in >= 30 orders
+    20   AS min_pair_orders,           -- and together in >= 20 orders
+    1.5  AS min_lift,                  -- together at least 1.5x more often than by chance
+    0.08 AS min_confidence,            -- >= 8 % of baskets with A also contain B
     -- PHASE 1 FOCUS: Jeddah. City names are unreliable (copies of the same order say 'Jeddah' or a district
     -- such as 'Al Bawadi', 'Al Safa'…), so the focus is defined by STORE: a customer is kept if their latest
     -- order was fulfilled by one of these stores. Jeddah stores: 3805 Amir Fawaz, 3806 Kilo 7, 3808 Hamdaniya,
@@ -301,6 +306,59 @@ usual AS (
   GROUP BY ci.phone
 ),
 
+-- ---------------------------------------------------------------- cross-sell (often bought together)
+basket AS (
+  SELECT DISTINCT h.order_number_str AS ord, h.name
+  FROM item_hist AS h
+  JOIN orders AS o ON CAST(o.order_number AS STRING) = h.order_number_str
+),
+basket_n AS (SELECT COUNT(DISTINCT ord) AS n FROM basket),
+prod_price AS (SELECT name, AVG(price) AS avg_price FROM item_hist GROUP BY name),
+prod_n AS (
+  SELECT b.name, COUNT(*) AS n_orders, ANY_VALUE(pp.avg_price) AS avg_price
+  FROM basket AS b
+  JOIN prod_price AS pp USING (name)
+  GROUP BY b.name
+  HAVING COUNT(*) >= (SELECT min_pair_product_orders FROM params)
+),
+pairs AS (
+  SELECT a.name AS a, b.name AS b, COUNT(*) AS n_ab
+  FROM basket AS a
+  JOIN basket AS b ON a.ord = b.ord AND a.name != b.name
+  WHERE a.name IN (SELECT name FROM prod_n) AND b.name IN (SELECT name FROM prod_n)
+  GROUP BY a, b
+  HAVING COUNT(*) >= (SELECT min_pair_orders FROM params)
+),
+assoc AS (
+  SELECT p.a, p.b, p.n_ab,
+         p.n_ab / pa.n_orders AS confidence,
+         p.n_ab * (SELECT n FROM basket_n) / (pa.n_orders * pb.n_orders) AS lift
+  FROM pairs AS p
+  JOIN prod_n AS pa ON pa.name = p.a
+  JOIN prod_n AS pb ON pb.name = p.b
+  WHERE pb.avg_price <= (SELECT max_item_price FROM params)
+    -- skip variants of the same thing ("Tomato 500 g" -> "Tomato Saudi 1 kg")
+    AND LOWER(SPLIT(p.a, ' ')[SAFE_OFFSET(0)]) != LOWER(SPLIT(p.b, ' ')[SAFE_OFFSET(0)])
+),
+xsell_cand AS (
+  SELECT ci.phone, x.a AS anchor, x.b AS product, x.confidence, x.lift,
+         x.confidence * LEAST(x.lift, 5) * LN(1 + ci.times) AS score
+  FROM cust_item AS ci
+  JOIN assoc AS x ON x.a = ci.name
+  LEFT JOIN (SELECT DISTINCT phone, name FROM cust_item_days) AS cb ON cb.phone = ci.phone AND cb.name = x.b
+  WHERE ci.times >= 2
+    AND cb.name IS NULL                                  -- never bought it
+    AND x.lift >= (SELECT min_lift FROM params)
+    AND x.confidence >= (SELECT min_confidence FROM params)
+),
+xsell AS (
+  SELECT phone,
+         TO_JSON_STRING(ARRAY_AGG(STRUCT(anchor, product, ROUND(confidence, 3) AS confidence, ROUND(lift, 2) AS lift)
+                                  ORDER BY score DESC LIMIT 1)[OFFSET(0)]) AS cross_sell
+  FROM xsell_cand
+  GROUP BY phone
+),
+
 scored AS (
   SELECT
     c.*,
@@ -376,6 +434,7 @@ SELECT
        AND s.latest_storeid IN UNNEST((SELECT focus_storeids FROM params)),
      (SELECT focus_region_name FROM params), s.city) AS city,
   u.usual_items,                            -- JSON array: [{name, times, last, every}] (V2 personalisation)
+  xs.cross_sell,                            -- JSON: {anchor, product, confidence, lift} (V2 cross-sell)
   -- last day covered by the picking data; item messages wait until a customer's latest order is covered
   (SELECT CAST(MAX(DATE(created_at, 'Asia/Riyadh')) AS STRING) FROM `myecomlulu.jackpot.instaleap_raw`) AS items_as_of,
   -- newest order in the source data; lets the app warn when the feed is stale
@@ -387,4 +446,5 @@ LEFT JOIN store_names   AS sn ON sn.storeid = ps.preferred_store_id
 LEFT JOIN pref_channel  AS pc ON pc.phone = s.phone
 LEFT JOIN pref_dept     AS pd ON pd.phone = s.phone
 LEFT JOIN usual         AS u  ON u.phone  = s.phone
+LEFT JOIN xsell         AS xs ON xs.phone = s.phone
 ORDER BY s.phone;
