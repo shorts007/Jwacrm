@@ -59,3 +59,12 @@ rate-limit / block errors (131048, 131056, 80007, 130429, 368, 131031) or 5 fail
 - **Item-data freshness guard:** item messages are only sent when the customer's latest order date ≤ `items_as_of` (last day
   in `instaleap_raw`), and Replenishment waits 2 days after any order. Keep the picking table refreshed as often as the order
   table, or personalised campaigns will (correctly) stay silent for recent buyers. Customer 360 shows "unknown" in that case.
+
+## Cross-sell (PRD §46)
+- BigQuery: association rules over Jeddah picking baskets — product pairs in ≥ 20 shared orders, each product in ≥ 30 orders,
+  lift ≥ 1.5 and confidence ≥ 8 %, suggested product ≤ SAR 150, size/brand variants of the same item skipped. Per customer:
+  the best pair whose first product they bought 2+ times and whose second they have never bought → `cross_sell` JSON.
+- Campaign CROSS_SELL (class PERSONALIZED_OFFER, priority 60 → after Replenishment): ACTIVE customers, same
+  item-data guard and next-shop timing as Replenishment. Templates `cross_sell_ar/_en/_bi`:
+  "customers who buy {{anchor}} often add {{product}} too".
+- Insights page: "Frequently bought together" — top 40 pairs by lift (last 180 days).

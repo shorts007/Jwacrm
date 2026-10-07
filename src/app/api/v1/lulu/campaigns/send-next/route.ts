@@ -188,9 +188,13 @@ export async function POST(request: Request) {
           ? dueItems(profile.usualItems, now, campaign.params.dueRatio, campaign.params.overdueRatio).slice(0, campaign.params.maxItems ?? 3).map((i) => i.name)
           : campaign.type === 'BUY_AGAIN'
             ? (profile.usualItems ?? []).slice(0, campaign.params.maxItems ?? 3).map((i) => i.name)
-            : null,
+            : campaign.type === 'CROSS_SELL' && profile.crossSell
+              ? [profile.crossSell.anchor]
+              : null,
+      product: campaign.type === 'CROSS_SELL' ? (profile.crossSell?.product ?? null) : null,
     });
-    if ((campaign.type === 'REPLENISHMENT' || campaign.type === 'BUY_AGAIN') && !wanted[1]) return skip('no usual items to name');
+    if ((campaign.type === 'REPLENISHMENT' || campaign.type === 'BUY_AGAIN' || campaign.type === 'CROSS_SELL') && !wanted[1])
+      return skip('no products to name');
     if (template.varCount > wanted.length) {
       await finish('FAILED', { last_error: `template ${template.name} needs ${template.varCount} variables` });
       return ok({ sent: 0, done: false, remaining: await remainingCount(), next_wait_seconds: 1, status: 'FAILED', reason: 'template variable mismatch' });

@@ -12,7 +12,7 @@ import type { CampaignConfig, ContactPolicy } from "./types";
 const PAGE = 1000;
 const PARALLEL = 8;
 export const PROFILE_COLUMNS =
-  "customer_id, mobile, name, language, birthday, last_order_date, total_orders, total_sales, median_interval_days, vip_flag, marketing_opt_in, active_complaint, suspect_reason, preferred_store, price_sensitivity, customer_segment, preferred_store_id, usual_items, items_as_of";
+  "customer_id, mobile, name, language, birthday, last_order_date, total_orders, total_sales, median_interval_days, vip_flag, marketing_opt_in, active_complaint, suspect_reason, preferred_store, price_sensitivity, customer_segment, preferred_store_id, usual_items, items_as_of, cross_sell";
 
 /** All ACTIVE synced profiles of the account (paged; PostgREST returns ≤1000 rows per call). */
 export async function loadActiveProfiles(db: SupabaseClient, accountId: string): Promise<DryRunProfileRow[]> {

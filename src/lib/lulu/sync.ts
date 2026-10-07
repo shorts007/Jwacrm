@@ -1,6 +1,6 @@
 import { normalizeMobile } from "./phone";
 import { lifecycleStage } from "./lifecycle";
-import type { CustomerProfile, LifecycleStage, UsualItem } from "./types";
+import type { CrossSell, CustomerProfile, LifecycleStage, UsualItem } from "./types";
 
 /** Max customers per sync request (keeps well inside the 120 req/min key limit). */
 export const MAX_SYNC_BATCH = 500;
@@ -54,6 +54,7 @@ export interface ProfileRow {
   total_discount: number | null;
   usual_items: UsualItem[] | null;
   items_as_of: string | null;
+  cross_sell: CrossSell | null;
 }
 
 const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
@@ -138,6 +139,7 @@ export function parseCustomer(raw: unknown, now: Date): ProfileRow | string {
     total_discount: num(r.total_discount),
     usual_items: parseUsualItems(r.usual_items),
     items_as_of: date(r.items_as_of),
+    cross_sell: parseCrossSell(r.cross_sell),
   };
 
   const asProfile: CustomerProfile = {
@@ -225,4 +227,22 @@ export function parseUsualItems(v: unknown): UsualItem[] | null {
     if (out.length === 5) break;
   }
   return out.length ? out : null;
+}
+
+/** BigQuery sends cross_sell as a JSON string — accept string or object. */
+export function parseCrossSell(v: unknown): CrossSell | null {
+  let o: unknown = v;
+  if (typeof v === "string") {
+    try {
+      o = JSON.parse(v);
+    } catch {
+      return null;
+    }
+  }
+  if (!o || typeof o !== "object") return null;
+  const r = o as Record<string, unknown>;
+  const anchor = typeof r.anchor === "string" ? r.anchor.trim().slice(0, 80) : "";
+  const product = typeof r.product === "string" ? r.product.trim().slice(0, 80) : "";
+  if (!anchor || !product || anchor === product) return null;
+  return { anchor, product, confidence: Number(r.confidence) || 0, lift: Number(r.lift) || 0 };
 }

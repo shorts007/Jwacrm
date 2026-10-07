@@ -552,3 +552,41 @@ export function DeptTable({ rows }: { rows: InsightRow[] }) {
     </div>
   );
 }
+
+export function PairsTable({ rows }: { rows: InsightRow[] }) {
+  const byPair = new Map<string, Record<string, number>>();
+  for (const r of rows) {
+    if (r.grp !== "pair") continue;
+    const rec = byPair.get(r.dim_value) ?? {};
+    rec[r.metric] = r.value;
+    byPair.set(r.dim_value, rec);
+  }
+  const list = [...byPair.entries()].map(([pair, m]) => ({ pair, orders: m.orders ?? 0, lift: m.lift ?? 0, share: m.together_share ?? 0 }))
+    .sort((a, b) => b.lift - a.lift);
+  if (list.length === 0) return <p className="text-sm text-muted-foreground">No pair data yet — re-run create_insights_view.sql and the sync.</p>;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-left text-sm">
+        <thead className="text-xs text-muted-foreground">
+          <tr>
+            <th className="px-2 py-1.5 font-medium">Products bought together</th>
+            <th className="px-2 py-1.5 text-right font-medium">Orders with both</th>
+            <th className="px-2 py-1.5 text-right font-medium">Likelihood vs chance</th>
+            <th className="px-2 py-1.5 text-right font-medium">Share of the smaller one&rsquo;s orders</th>
+          </tr>
+        </thead>
+        <tbody>
+          {list.map((p) => (
+            <tr key={p.pair} className="border-t border-border">
+              <td className="px-2 py-1.5 text-foreground">{p.pair}</td>
+              <td className="px-2 py-1.5 text-right tabular-nums">{n0(p.orders)}</td>
+              <td className="px-2 py-1.5 text-right tabular-nums">{p.lift.toFixed(1)}×</td>
+              <td className="px-2 py-1.5 text-right tabular-nums">{pct(p.share)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="mt-1 text-xs text-muted-foreground">Last 180 days of picking data. Useful for bundles, shelf placement and the Cross-sell campaign.</p>
+    </div>
+  );
+}

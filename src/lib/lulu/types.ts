@@ -23,7 +23,8 @@ export type CampaignType =
   | "NEW_OFFER"
   | "SELECTED_CUSTOMER_OFFER"
   | "REPLENISHMENT"
-  | "BUY_AGAIN";
+  | "BUY_AGAIN"
+  | "CROSS_SELL";
 
 /** PRD §56 priority classes. Order is configurable via lulu_contact_policy. */
 export type PriorityClass =
@@ -55,6 +56,8 @@ export interface CustomerProfile {
   priceBehaviour?: string | null;
   /** Replenishable products this customer buys repeatedly (V2 personalisation). */
   usualItems?: UsualItem[];
+  /** Best "often bought together" product they never bought (V2 cross-sell). */
+  crossSell?: CrossSell | null;
   /** Last day covered by item (picking) data — YYYY-MM-DD. */
   itemsAsOf?: string | null;
   preferredStore?: string | null;
@@ -91,8 +94,11 @@ export interface CampaignConfig {
     /** BUY_AGAIN: lifecycle stages to target (default AT_RISK) and minimum usual items. */
     stages?: LifecycleStage[];
     minItems?: number; // default 2
-    /** REPLENISHMENT: wait at least N days after any order (default 2). */
+    /** REPLENISHMENT: wait at least N days after any order (default 2) … */
     minDaysSinceOrder?: number;
+    /** … and, for customers with a known shopping rhythm, until cycleRatio × their usual gap between orders
+     *  (default 0.7 → a 9-day shopper is reminded from day ~6, just before their next shop). */
+    cycleRatio?: number;
   };
 }
 
@@ -172,4 +178,13 @@ export interface UsualItem {
   last: string;
   /** usual days between purchases */
   every: number;
+}
+
+export interface CrossSell {
+  /** Product the customer buys repeatedly … */
+  anchor: string;
+  /** … and the product often bought with it that they have never bought. */
+  product: string;
+  confidence: number;
+  lift: number;
 }

@@ -125,6 +125,12 @@ export default function CampaignsPage() {
           </div>
           <div className="flex gap-2">
           <Link
+            href="/engagement/glossary"
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted"
+          >
+            Glossary
+          </Link>
+          <Link
             href="/engagement/promotions"
             className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted"
           >

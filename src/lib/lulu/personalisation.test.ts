@@ -61,6 +61,13 @@ describe("Replenishment & Buy Again campaigns", () => {
   it("waits 2 days after any order before a restock reminder", () => {
     expect(run(cust({ lastOrderDate: "2026-10-06" })).action?.campaignCode).not.toBe("REPLENISHMENT");
   });
+  it("times the reminder for the customer's next shop (9-day shopper: not on day 3, yes on day 7)", () => {
+    const potato = [{ name: "Potato Saudi 1 kg", times: 15, last: "2026-09-21", every: 10 }];
+    const samia = (lastOrder: string) =>
+      run(cust({ lastOrderDate: lastOrder, medianIntervalDays: 9, totalOrders: 56, usualItems: potato, itemsAsOf: "2026-10-06" }));
+    expect(samia("2026-10-04").action?.campaignCode).not.toBe("REPLENISHMENT"); // 3 days after her last order
+    expect(samia("2026-09-30").action?.campaignCode).toBe("REPLENISHMENT"); // 7 days → just before her next shop
+  });
   it("no usual items → normal lifecycle campaigns", () => {
     const r = run(cust({ lastOrderDate: "2026-09-25", medianIntervalDays: 5, usualItems: undefined }));
     expect(r.action?.campaignCode).toBe("INACTIVE_15");

@@ -414,6 +414,40 @@ m_dept AS (
   GROUP BY period, dim_value
 ),
 
+-- ---------------------------------------------------------------- frequently bought together (last 180 days)
+basket_i AS (
+  SELECT DISTINCT order_number_str AS ord, name FROM items_f
+  WHERE d > DATE_SUB((SELECT d FROM items_as_of), INTERVAL 180 DAY)
+),
+basket_i_n AS (SELECT COUNT(DISTINCT ord) AS n FROM basket_i),
+prod_i AS (SELECT name, COUNT(*) AS n FROM basket_i GROUP BY name HAVING COUNT(*) >= 30),
+pairs_i AS (
+  SELECT a.name AS a, b.name AS b, COUNT(*) AS n_ab
+  FROM basket_i AS a JOIN basket_i AS b ON a.ord = b.ord AND a.name < b.name
+  WHERE a.name IN (SELECT name FROM prod_i) AND b.name IN (SELECT name FROM prod_i)
+  GROUP BY a, b HAVING COUNT(*) >= 30
+),
+pair_top AS (
+  SELECT CONCAT(p.a, ' + ', p.b) AS pair, p.n_ab AS orders,
+         p.n_ab * (SELECT n FROM basket_i_n) / (pa.n * pb.n) AS lift,
+         p.n_ab / LEAST(pa.n, pb.n) AS together_share
+  FROM pairs_i AS p JOIN prod_i AS pa ON pa.name = p.a JOIN prod_i AS pb ON pb.name = p.b
+  WHERE LOWER(SPLIT(p.a, ' ')[SAFE_OFFSET(0)]) != LOWER(SPLIT(p.b, ' ')[SAFE_OFFSET(0)])
+),
+pair_ranked AS (
+  SELECT * FROM pair_top WHERE TRUE
+  QUALIFY ROW_NUMBER() OVER (ORDER BY lift DESC) <= 40
+),
+m_pair AS (
+  SELECT 'pair' AS grp, 'last180' AS period, 'pair' AS dim, a.pair AS dim_value, x.metric, x.value
+  FROM pair_ranked AS a,
+  UNNEST([
+    STRUCT('orders' AS metric, CAST(a.orders AS FLOAT64) AS value),
+    STRUCT('lift' AS metric, CAST(a.lift AS FLOAT64) AS value),
+    STRUCT('together_share' AS metric, CAST(a.together_share AS FLOAT64) AS value)
+  ]) AS x
+),
+
 m_meta AS (
   SELECT 'meta' AS grp, 'all' AS period, 'data_as_of' AS dim,
          FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:%SZ', (SELECT ts FROM as_of)) AS dim_value,
@@ -432,6 +466,7 @@ FROM (
   UNION ALL SELECT * FROM m_dow
   UNION ALL SELECT * FROM m_product
   UNION ALL SELECT * FROM m_dept
+  UNION ALL SELECT * FROM m_pair
   UNION ALL SELECT * FROM m_meta
 )
 WHERE value IS NOT NULL;

@@ -14,6 +14,7 @@ export const PRIORITY_CLASS_BY_TYPE: Record<CampaignType, PriorityClass> = {
   SELECTED_CUSTOMER_OFFER: "PERSONALIZED_OFFER",
   REPLENISHMENT: "PERSONALIZED_OFFER",
   BUY_AGAIN: "WINBACK", // a personal version of the at-risk reminder; outranks INACTIVE_15 via priority 45 < 50
+  CROSS_SELL: "PERSONALIZED_OFFER", // after Replenishment (priority 35 < 60)
 };
 
 /** Campaigns that can run on the order table alone (no birthday / item data needed). */
@@ -24,8 +25,9 @@ export const DEFAULT_CAMPAIGN_ROWS = [
   { campaign_code: "SECOND_ORDER", name: "Second Order", campaign_type: "SECOND_ORDER", rule_params: { secondOrderAfterDays: 7 }, priority: 40 },
   { campaign_code: "VIP_PROTECTION", name: "VIP Protection", campaign_type: "VIP_PROTECTION", rule_params: {}, priority: 10 },
   // V2 personalisation (item history from picking data)
-  { campaign_code: "REPLENISHMENT", name: "Replenishment", campaign_type: "REPLENISHMENT", rule_params: { dueRatio: 0.9, overdueRatio: 2, maxItems: 3 }, priority: 35 },
+  { campaign_code: "REPLENISHMENT", name: "Replenishment", campaign_type: "REPLENISHMENT", rule_params: { dueRatio: 0.9, overdueRatio: 2, maxItems: 3, minDaysSinceOrder: 2, cycleRatio: 0.7 }, priority: 35 },
   { campaign_code: "BUY_AGAIN", name: "Buy Again", campaign_type: "BUY_AGAIN", rule_params: { stages: ["AT_RISK"], minItems: 2 }, priority: 45 },
+  { campaign_code: "CROSS_SELL", name: "Cross-sell", campaign_type: "CROSS_SELL", rule_params: { stages: ["ACTIVE"], minDaysSinceOrder: 2, cycleRatio: 0.7 }, priority: 60 },
 ] as const;
 
 export interface CampaignRow {

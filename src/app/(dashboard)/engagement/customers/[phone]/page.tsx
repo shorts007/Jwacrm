@@ -171,6 +171,21 @@ export default function Customer360Page() {
             )}
           </div>
 
+          {(p?.cross_sell as { anchor: string; product: string; lift: number; confidence: number } | null | undefined) && (
+            <div className={card}>
+              <h2 className="mb-1 text-sm font-semibold">Cross-sell suggestion</h2>
+              {(() => {
+                const x = p!.cross_sell as { anchor: string; product: string; lift: number; confidence: number };
+                return (
+                  <p className="text-sm">
+                    Buys <b>{x.anchor}</b> regularly but has never bought <b>{x.product}</b> — {Math.round(x.confidence * 100)}% of baskets with the
+                    first also contain the second ({x.lift.toFixed(1)}× more than chance).
+                  </p>
+                );
+              })()}
+            </div>
+          )}
+
           <div className={card}>
             <h2 className="mb-2 text-sm font-semibold">LuLu messages &amp; results</h2>
             {d.touches.length === 0 ? (

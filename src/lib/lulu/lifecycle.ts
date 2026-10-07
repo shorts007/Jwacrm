@@ -171,7 +171,10 @@ export function matchingCampaigns(
         break;
       case "REPLENISHMENT": {
         if (!itemDataCovers(p)) break;
-        if (gap !== null && gap < (c.params.minDaysSinceOrder ?? 2)) break;
+        // Remind just before the customer's NEXT shop, not right after the last one.
+        const rhythm = p.totalOrders >= MIN_ORDERS_FOR_CYCLE && p.medianIntervalDays ? p.medianIntervalDays : 0;
+        const wait = Math.max(c.params.minDaysSinceOrder ?? 2, (c.params.cycleRatio ?? 0.7) * rhythm);
+        if (gap !== null && gap < wait) break;
         const due = dueItems(p.usualItems, now, c.params.dueRatio, c.params.overdueRatio).slice(0, c.params.maxItems ?? 3);
         if (due.length) {
           const first = due[0];
@@ -188,6 +191,16 @@ export function matchingCampaigns(
         const items = (p.usualItems ?? []).filter((i) => i.times >= 2);
         if (stages.includes(stage) && items.length >= (c.params.minItems ?? 2))
           out.push({ campaign: c, reason: `${stage === "AT_RISK" ? "At risk" : stage} — usual items: ${items.slice(0, 2).map((i) => i.name).join(", ")}` });
+        break;
+      }
+      case "CROSS_SELL": {
+        // Regular, recent customers only — a suggestion, not a reminder — timed before their next shop.
+        if (!itemDataCovers(p) || !p.crossSell) break;
+        const stages = c.params.stages?.length ? c.params.stages : (["ACTIVE"] as LifecycleStage[]);
+        if (!stages.includes(stage)) break;
+        const rhythm = p.totalOrders >= MIN_ORDERS_FOR_CYCLE && p.medianIntervalDays ? p.medianIntervalDays : 0;
+        if (gap !== null && gap < Math.max(c.params.minDaysSinceOrder ?? 2, (c.params.cycleRatio ?? 0.7) * rhythm)) break;
+        out.push({ campaign: c, reason: `Often bought with ${p.crossSell.anchor}: ${p.crossSell.product} (×${p.crossSell.lift.toFixed(1)} more likely together)` });
         break;
       }
       case "NEW_OFFER":
