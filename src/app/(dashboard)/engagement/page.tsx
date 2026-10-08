@@ -166,8 +166,14 @@ export default function EngagementPage() {
           </p>
         </div>
         <Link
-          href="/engagement/glossary"
+          href="/engagement/channels"
           className="ms-auto inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted"
+        >
+          Channels
+        </Link>
+        <Link
+          href="/engagement/glossary"
+          className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted"
         >
           Glossary
         </Link>
