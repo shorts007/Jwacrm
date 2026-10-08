@@ -4,7 +4,7 @@
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/automations/admin-client';
-import { EvolutionError, connect, connectionState, createInstance, fetchInstance, jidDigits, setWebhook } from '@/lib/evolution/client';
+import { EvolutionError, connect, connectionState, createInstance, fetchInstance, findWebhookUrl, jidDigits, setWebhook } from '@/lib/evolution/client';
 import { connFromRow, loadEvolutionConfig, logEvolutionEvent, webhookUrl } from '@/lib/evolution/server';
 import { encrypt } from '@/lib/whatsapp/encryption';
 
@@ -13,6 +13,7 @@ export const maxDuration = 60;
 export async function POST(request: Request) {
   try {
     const ctx = await requireRole('admin');
+    const body = (await request.json().catch(() => ({}))) as { takeOver?: boolean };
     const row = await loadEvolutionConfig(ctx.accountId);
     if (!row) return NextResponse.json({ error: 'Save the Evolution settings first.' }, { status: 400 });
     const db = supabaseAdmin();
@@ -35,7 +36,30 @@ export async function POST(request: Request) {
         steps.push(`instance ${conn.instance} found`);
       }
 
-      await setWebhook(conn, webhookUrl(request, row.webhook_secret));
+      const ourHook = webhookUrl(request, row.webhook_secret);
+      if (info && !steps.some((s) => s.startsWith('created'))) {
+        // Guard: an instance that already exists and is not wired to WACRM probably belongs to
+        // something else on the same server (e.g. stock alerts). Taking it over would redirect its
+        // webhook and mix its number into CRM traffic, so ask for explicit confirmation first.
+        const current = await findWebhookUrl(conn).catch(() => null);
+        if (current !== ourHook && !body.takeOver) {
+          await logEvolutionEvent(ctx.accountId, 'connect', 'needs_confirmation', { steps, currentWebhook: current ? 'other' : 'none' });
+          return NextResponse.json(
+            {
+              needsConfirmation: true,
+              error:
+                `Instance "${conn.instance}" already exists on the Evolution server and is not linked to WACRM` +
+                (current ? ' (its webhook points to another app)' : '') +
+                '. If another app uses it (e.g. stock alerts), choose a new instance name instead.',
+              steps,
+            },
+            { status: 409 },
+          );
+        }
+        if (current !== ourHook) steps.push('took over existing instance (confirmed)');
+      }
+
+      await setWebhook(conn, ourHook);
       steps.push('webhook set');
 
       const state = await connectionState(conn);

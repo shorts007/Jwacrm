@@ -139,6 +139,18 @@ export async function setWebhook(c: EvolutionConn, url: string): Promise<void> {
   });
 }
 
+/** The URL the instance's webhook currently points at (null when none is set). */
+export async function findWebhookUrl(c: EvolutionConn): Promise<string | null> {
+  try {
+    const r = await call<{ url?: string; enabled?: boolean; webhook?: { url?: string } } | null>(c, "GET", `/webhook/find/${enc(c.instance)}`);
+    const url = r?.url ?? r?.webhook?.url ?? null;
+    return typeof url === "string" && url.trim() ? url.trim() : null;
+  } catch (e) {
+    if (e instanceof EvolutionError && e.status === 404) return null;
+    throw e;
+  }
+}
+
 /** Send a plain text message. `number` = digits with country code. Returns the WhatsApp message id. */
 export async function sendText(c: EvolutionConn, number: string, text: string, opts: { delayMs?: number } = {}): Promise<{ id: string | null }> {
   const r = await call<{ key?: { id?: string } }>(c, "POST", `/message/sendText/${enc(c.instance)}`, {

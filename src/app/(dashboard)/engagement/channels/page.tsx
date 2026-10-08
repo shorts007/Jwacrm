@@ -80,6 +80,7 @@ export default function ChannelsPage() {
   const post = async (url: string, body?: unknown) => {
     const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
     const j = await r.json().catch(() => ({}));
+    if (r.status === 409 && (j as { needsConfirmation?: boolean }).needsConfirmation) return j as Record<string, unknown>;
     if (!r.ok) throw new Error((j as { error?: string }).error ?? `HTTP ${r.status}`);
     return j as Record<string, unknown>;
   };
@@ -106,7 +107,17 @@ export default function ChannelsPage() {
 
   const connectNow = () =>
     run("connect", async () => {
-      const j = await post("/api/evolution/connect");
+      let j = await post("/api/evolution/connect");
+      if (j.needsConfirmation) {
+        const ok = window.confirm(
+          `${j.error as string}\n\nOnly continue if this instance is meant for WACRM. Its webhook will be pointed at WACRM. Continue?`,
+        );
+        if (!ok) {
+          setMsg({ text: "Cancelled — enter a new instance name (e.g. wacrm-lulu), save, then Connect.", error: true });
+          return;
+        }
+        j = await post("/api/evolution/connect", { takeOver: true });
+      }
       setQr((j.qr as string) ?? null);
       setPairing((j.pairingCode as string) ?? null);
       setMsg({ text: j.state === "open" ? "Connected." : "Scan the QR code with WhatsApp on the phone (Linked devices → Link a device)." });
