@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/automations/admin-client';
 import { EvolutionError, logout } from '@/lib/evolution/client';
-import { connFromRow, loadEvolutionConfig, logEvolutionEvent } from '@/lib/evolution/server';
+import { connFromRow, loadEvolutionConfig, logEvolutionEvent, evolutionSetupError } from '@/lib/evolution/server';
 
 export async function POST() {
   try {
@@ -24,6 +24,8 @@ export async function POST() {
     await logEvolutionEvent(ctx.accountId, 'logout', 'ok');
     return NextResponse.json({ ok: true });
   } catch (err) {
+    const setup = evolutionSetupError(err);
+    if (setup) return NextResponse.json({ error: setup }, { status: 500 });
     return toErrorResponse(err);
   }
 }

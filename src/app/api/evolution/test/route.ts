@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { EvolutionError, sendText } from '@/lib/evolution/client';
-import { connFromRow, loadEvolutionConfig, logEvolutionEvent } from '@/lib/evolution/server';
+import { connFromRow, loadEvolutionConfig, logEvolutionEvent, evolutionSetupError } from '@/lib/evolution/server';
 
 export async function POST(request: Request) {
   try {
@@ -24,6 +24,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: msg }, { status: 502 });
     }
   } catch (err) {
+    const setup = evolutionSetupError(err);
+    if (setup) return NextResponse.json({ error: setup }, { status: 500 });
     return toErrorResponse(err);
   }
 }

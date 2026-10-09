@@ -5,7 +5,7 @@ import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/automations/admin-client';
 import { EvolutionError, connect, connectionState, createInstance, fetchInstance, findWebhookUrl, jidDigits, setWebhook } from '@/lib/evolution/client';
-import { connFromRow, loadEvolutionConfig, logEvolutionEvent, webhookUrl } from '@/lib/evolution/server';
+import { connFromRow, loadEvolutionConfig, logEvolutionEvent, webhookUrl, evolutionSetupError } from '@/lib/evolution/server';
 import { encrypt } from '@/lib/whatsapp/encryption';
 
 export const maxDuration = 60;
@@ -96,6 +96,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: msg + hint, steps }, { status: 502 });
     }
   } catch (err) {
+    const setup = evolutionSetupError(err);
+    if (setup) return NextResponse.json({ error: setup }, { status: 500 });
     return toErrorResponse(err);
   }
 }
