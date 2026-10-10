@@ -22,6 +22,7 @@ import {
   sendMessageToConversation,
 } from '@/lib/whatsapp/send-message';
 import {
+  DEFAULT_TEMPLATE_NAMES,
   TEMPLATE_LANGUAGE,
   OFFER_COLUMNS,
   asMessageLanguage,
@@ -82,11 +83,14 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+    // Saved names, else the suggested defaults for the campaign type (docs/lulu/templates.md).
+    const defaults = DEFAULT_TEMPLATE_NAMES[campaign.campaign_type];
+    const biName = campaign.template_name_bilingual ?? defaults?.bi ?? null;
     const template = bilingual
-      ? campaign.template_name_bilingual
-        ? { name: campaign.template_name_bilingual, language: 'ar' as const }
+      ? biName
+        ? { name: biName, language: 'ar' as const }
         : null
-      : pickTemplate({ ar: campaign.template_name_ar, en: campaign.template_name_en }, language);
+      : pickTemplate({ ar: campaign.template_name_ar ?? defaults?.ar ?? null, en: campaign.template_name_en ?? defaults?.en ?? null }, language);
     if (!template) {
       return NextResponse.json(
         { error: 'Set the template name for this campaign first (it must be an APPROVED template in Meta).' },

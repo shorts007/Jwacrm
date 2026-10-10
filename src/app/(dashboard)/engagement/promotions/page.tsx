@@ -52,6 +52,7 @@ export default function PromotionsPage() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [estimate, setEstimate] = useState<number | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [imageLink, setImageLink] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -120,6 +121,36 @@ export default function PromotionsPage() {
     const { data } = db.storage.from("lulu-promos").getPublicUrl(path);
     setDraft({ ...draft, image: data.publicUrl });
     setMsg(null);
+  };
+
+  // An image already stored online (Supabase, S3, Cloudinary, a website…). WhatsApp downloads it
+  // at send time, so it must be a direct, public PNG/JPEG link — checked by loading it here.
+  const applyImageLink = (raw: string) => {
+    if (!draft) return;
+    let url = raw.trim();
+    if (!url) return;
+    // Common share links → direct image links.
+    const drive = /drive\.google\.com\/file\/d\/([^/]+)/.exec(url) ?? /drive\.google\.com\/open\?id=([^&]+)/.exec(url);
+    if (drive) url = `https://drive.google.com/uc?export=view&id=${drive[1]}`;
+    if (/dropbox\.com\//.test(url)) url = url.replace(/([?&])dl=0/, "$1raw=1");
+    if (!/^https:\/\//i.test(url)) return setMsg("The image link must start with https:// and be publicly reachable.");
+    setUploading(true);
+    const img = new Image();
+    img.onload = () => {
+      setUploading(false);
+      setDraft((d) => (d ? { ...d, image: url } : d));
+      setImageLink("");
+      setMsg(
+        /\.(png|jpe?g)(\?|$)/i.test(url)
+          ? null
+          : "Image link added. WhatsApp only accepts PNG or JPEG (max 5 MB) — send a test to be sure it arrives."
+      );
+    };
+    img.onerror = () => {
+      setUploading(false);
+      setMsg("That link did not open as an image. Use a direct, public link to a PNG or JPEG (not a web page or a private file).");
+    };
+    img.src = url;
   };
 
   const onPaste = (e: ClipboardEvent<HTMLDivElement>) => {
@@ -220,6 +251,33 @@ export default function PromotionsPage() {
               {uploading ? <Loader2 className="h-6 w-6 animate-spin" /> : <ImagePlus className="h-6 w-6" />}
               <span>Click here, then <b>paste</b> (Ctrl/⌘+V) a product image — or drop / choose a PNG or JPEG (max 5 MB).</span>
               <input ref={fileRef} type="file" accept="image/png,image/jpeg" className="hidden" onChange={(e) => void upload(e.target.files?.[0])} />
+            </div>
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="min-w-0 flex-1 space-y-1 text-xs text-muted-foreground">
+                …or paste a link to an image that is already stored online
+                <input
+                  className={input}
+                  dir="ltr"
+                  inputMode="url"
+                  placeholder="https://…/product.jpg"
+                  value={imageLink}
+                  onChange={(e) => setImageLink(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      applyImageLink(imageLink);
+                    }
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                disabled={uploading || !imageLink.trim()}
+                onClick={() => applyImageLink(imageLink)}
+                className="rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted disabled:opacity-50"
+              >
+                Use link
+              </button>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               <label className="space-y-1 text-xs text-muted-foreground">Offer text — Arabic ({draft.textAr.length}/{PROMO_TEXT_MAX})
