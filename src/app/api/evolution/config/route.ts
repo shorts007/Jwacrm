@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 import { requireRole, toErrorResponse } from '@/lib/auth/account';
 import { supabaseAdmin } from '@/lib/automations/admin-client';
 import { normalizeBaseUrl } from '@/lib/evolution/client';
-import { loadEvolutionConfig, newWebhookSecret, webhookUrl } from '@/lib/evolution/server';
+import { loadEvolutionConfig, newWebhookSecret, webhookUrl, evolutionSetupError } from '@/lib/evolution/server';
 import { encrypt } from '@/lib/whatsapp/encryption';
 
 export async function GET(request: Request) {
@@ -33,6 +33,8 @@ export async function GET(request: Request) {
       events: events ?? [],
     });
   } catch (err) {
+    const setup = evolutionSetupError(err);
+    if (setup) return NextResponse.json({ error: setup }, { status: 500 });
     return toErrorResponse(err);
   }
 }
@@ -78,6 +80,8 @@ export async function POST(request: Request) {
         : null,
     });
   } catch (err) {
+    const setup = evolutionSetupError(err);
+    if (setup) return NextResponse.json({ error: setup }, { status: 500 });
     return toErrorResponse(err);
   }
 }

@@ -211,6 +211,8 @@ export async function POST(request: Request) {
         templateParams: params,
         // Promotions: this promotion's own image replaces the template's sample header image.
         templateMessageParams: isPromo ? { body: params, headerMediaUrl: campaign.promoImageUrl! } : undefined,
+        // Outreach → the account's default sender (Meta or the WhatsApp app number).
+        channel: 'default',
       });
       await finish('SENT', {
         sent_at: new Date().toISOString(),

@@ -1,10 +1,14 @@
-import { sendTextMessage, sendTemplateMessage } from '@/lib/whatsapp/meta-api'
+import {
+  rememberConversationChannel,
+  resolveTransport,
+  sendTemplateVia,
+  sendTextVia,
+} from '@/lib/channels/outbound'
 import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive'
 import {
   engineSendInteractiveButtons,
   engineSendInteractiveList,
 } from '@/lib/flows/meta-send'
-import { decrypt } from '@/lib/whatsapp/encryption'
 import {
   phoneVariants,
   isRecipientNotAllowedError,
@@ -144,16 +148,10 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
   }
   const sanitized = sendTarget.target
 
-  const { data: config, error: configErr } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', input.accountId)
-    .single()
-  if (configErr || !config) {
-    throw new Error('WhatsApp not configured for this account')
-  }
-
-  const accessToken = decrypt(config.access_token)
+  // Meta or the WhatsApp app number — the conversation's own number (see @/lib/channels/outbound).
+  const transport = await resolveTransport(db, input.accountId, {
+    conversationId: input.conversationId,
+  })
 
   // Local template row — read for the body we persist below, not for
   // the Meta payload (the wire shape is deliberately unchanged here).
@@ -173,19 +171,18 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
 
   const attempt = async (phone: string): Promise<string> => {
     if (input.kind === 'template') {
-      const r = await sendTemplateMessage({
-        phoneNumberId: config.phone_number_id,
-        accessToken,
+      const r = await sendTemplateVia(transport, {
         to: phone,
         templateName: input.templateName,
         language: input.language,
         params: input.params,
+        // Meta keeps its legacy body-only payload; the WhatsApp app number needs the row
+        // to render the approved text.
+        template: transport.channel === 'evolution' ? templateRow : undefined,
       })
       return r.messageId
     }
-    const r = await sendTextMessage({
-      phoneNumberId: config.phone_number_id,
-      accessToken,
+    const r = await sendTextVia(transport, {
       to: phone,
       text: input.text,
     })
@@ -195,7 +192,8 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
   // Same phone-variant retry as /api/whatsapp/send — Meta sandbox and
   // numbers registered with/without a trunk 0 both require this to
   // reliably land a message.
-  const variants = sendTarget.isPhone ? phoneVariants(sanitized) : [sanitized]
+  const variants =
+    sendTarget.isPhone && transport.channel === 'meta' ? phoneVariants(sanitized) : [sanitized]
   let workingPhone = sanitized
   let waMessageId = ''
   let lastError: unknown = null
@@ -212,6 +210,7 @@ async function sendViaMeta(input: SendInput): Promise<{ whatsapp_message_id: str
     }
   }
   if (lastError) throw lastError
+  await rememberConversationChannel(input.accountId, input.conversationId, transport)
 
   if (sendTarget.isPhone && workingPhone !== sanitized) {
     await db.from('contacts').update({ phone: workingPhone }).eq('id', contact.id)

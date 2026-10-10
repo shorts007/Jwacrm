@@ -191,7 +191,8 @@
       "expired": "Expirada",
       "xhRemaining": "{hours}h restantes",
       "xmRemaining": "{minutes}min restantes",
-      "noCustomerMessages": "Nenhuma mensagem do cliente"
+      "noCustomerMessages": "Nenhuma mensagem do cliente",
+      "appNumber": "Número do app WhatsApp · sem limite de 24 h"
     },
     "composer": {
       "draftHint": "Toque em ✨ para redigir uma resposta com IA — você pode editá-la antes de enviar",

@@ -232,8 +232,28 @@ export function MessageThread({
     };
   }, []);
 
+  // Chats on the WhatsApp app number (Evolution API) have no 24-hour window:
+  // the chat's own channel, or the account's default sender for a chat with none yet.
+  const [evolutionDefault, setEvolutionDefault] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/channels/summary")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { evolutionDefault?: boolean } | null) => {
+        if (!cancelled && j) setEvolutionDefault(!!j.evolutionDefault);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const conversationChannel = conversation?.channel ?? null;
+  const onAppNumber =
+    conversationChannel === "evolution" || (!conversationChannel && evolutionDefault);
+
   // 24-hour session timer
   const sessionInfo = useMemo(() => {
+    if (onAppNumber) return { expired: false, remaining: tTimer("appNumber") };
     if (!messages.length) return { expired: false, remaining: "" };
 
     // Find last customer message
@@ -257,7 +277,7 @@ export function MessageThread({
         : tTimer("xmRemaining", { minutes: Math.floor(hoursLeft * 60) });
 
     return { expired, remaining };
-  }, [messages, tTimer]);
+  }, [messages, tTimer, onAppNumber]);
 
   // Store latest callback in a ref so fetchMessages doesn't need to
   // depend on `onMessagesLoaded` — otherwise parent re-renders cause

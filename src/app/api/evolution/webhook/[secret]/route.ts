@@ -2,15 +2,19 @@
 // POST /api/evolution/webhook/<secret>  — receiver for Evolution API events.
 //
 // The secret in the URL identifies the account (Evolution webhooks are not signed).
-// Phase 1 handles the connection lifecycle (CONNECTION_UPDATE, QRCODE_UPDATED) and
-// records every other event (redacted) in evolution_event_log. Message handling
-// (MESSAGES_UPSERT / MESSAGES_UPDATE / SEND_MESSAGE) is added in phase 3.
-// Always answers 200 quickly so Evolution does not retry.
+//   CONNECTION_UPDATE / QRCODE_UPDATED → live status + QR on Engagement → Channels
+//   MESSAGES_UPSERT  → inbox (customer messages, and messages typed on the phone)
+//   MESSAGES_UPDATE  → delivered / read ticks
+// Every delivery is logged (redacted) in evolution_event_log for diagnostics.
+// Answers 200 at once and processes in after(), so Evolution never retries.
 // ============================================================
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { supabaseAdmin } from '@/lib/automations/admin-client';
 import { jidDigits } from '@/lib/evolution/client';
-import { logEvolutionEvent } from '@/lib/evolution/server';
+import { receiveUpdates, receiveUpsert, resolveOwnerUserId } from '@/lib/evolution/receive';
+import { connFromRow, logEvolutionEvent, type EvolutionConfigRow } from '@/lib/evolution/server';
+
+export const maxDuration = 60;
 
 interface Delivery {
   event?: string;
@@ -26,7 +30,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ sec
   const db = supabaseAdmin();
   const { data: cfg } = await db
     .from('evolution_config')
-    .select('account_id, instance_name, connected_number')
+    .select('*')
     .eq('webhook_secret', secret)
     .maybeSingle();
   if (!cfg) return NextResponse.json({ error: 'not found' }, { status: 404 });
@@ -58,8 +62,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ sec
           ...(state === 'open' ? { qr_code: null } : {}),
           ...(number ? { connected_number: number } : {}),
           ...(typeof d.profileName === 'string' ? { profile_name: d.profileName } : {}),
-          // a dropped connection must stop Evolution being used for new sends
-          ...(state === 'close' ? { is_default_outbound: false } : {}),
         })
         .eq('account_id', accountId);
       await logEvolutionEvent(accountId, event, state, body.data);
@@ -68,10 +70,28 @@ export async function POST(request: Request, { params }: { params: Promise<{ sec
       const qr = typeof q?.base64 === 'string' ? q.base64 : null;
       await db.from('evolution_config').update({ qr_code: qr, qr_updated_at: now, last_event_at: now }).eq('account_id', accountId);
       await logEvolutionEvent(accountId, event, qr ? 'qr_updated' : 'no_qr');
+    } else if (event === 'messages.upsert' || event === 'messages.update') {
+      const row = cfg as EvolutionConfigRow;
+      after(async () => {
+        try {
+          await db.from('evolution_config').update({ last_event_at: now }).eq('account_id', accountId);
+          let outcome: string;
+          if (event === 'messages.update') {
+            outcome = await receiveUpdates(body.data);
+          } else {
+            const ownerUserId = await resolveOwnerUserId(accountId, row.created_by);
+            outcome = ownerUserId
+              ? await receiveUpsert(body.data, { accountId, ownerUserId, conn: connFromRow(row) })
+              : 'no_owner_user';
+          }
+          await logEvolutionEvent(accountId, event, outcome, body);
+        } catch (err) {
+          await logEvolutionEvent(accountId, event, 'error', { error: err instanceof Error ? err.message : String(err), body });
+        }
+      });
     } else {
       await db.from('evolution_config').update({ last_event_at: now }).eq('account_id', accountId);
-      // Phase 3 will route these into the inbox; for now keep samples for diagnostics.
-      await logEvolutionEvent(accountId, event, 'recorded', body);
+      await logEvolutionEvent(accountId, event, 'ignored', body);
     }
   } catch (err) {
     await logEvolutionEvent(accountId, event, 'error', { error: err instanceof Error ? err.message : String(err) });

@@ -12,6 +12,7 @@ import {
   loadAccountMetaCredentials,
 } from '@/lib/flows/meta-send'
 import { sendTypingIndicator } from '@/lib/whatsapp/meta-api'
+import { channelFor, resolveTransport, typingVia } from '@/lib/channels/outbound'
 import { checkRateLimit, RATE_LIMITS } from '@/lib/rate-limit'
 
 interface DispatchArgs {
@@ -119,7 +120,7 @@ export async function dispatchInboundToAiReply(
     // nothing to undo on the handoff / no-text path. Strictly
     // best-effort: a failed indicator must never cost us the reply.
     if (inboundMessageId) {
-      await showTypingIndicator(db, accountId, inboundMessageId)
+      await showTypingIndicator(db, accountId, conversationId, contactId, inboundMessageId)
     }
 
     // Ground the reply in the account's knowledge base (best-effort).
@@ -224,9 +225,24 @@ export async function dispatchInboundToAiReply(
 async function showTypingIndicator(
   db: ReturnType<typeof supabaseAdmin>,
   accountId: string,
+  conversationId: string,
+  contactId: string,
   inboundMessageId: string,
 ): Promise<void> {
   try {
+    // Chats on the WhatsApp app number (Evolution) get its own read + "typing…".
+    if ((await channelFor(accountId, { conversationId })) === 'evolution') {
+      const transport = await resolveTransport(db, accountId, { conversationId })
+      const { data } = await db
+        .from('contacts')
+        .select('phone')
+        .eq('id', contactId)
+        .eq('account_id', accountId)
+        .maybeSingle()
+      const to = (data as { phone?: string | null } | null)?.phone ?? ''
+      await typingVia(transport, { to, inboundMessageId })
+      return
+    }
     const { phoneNumberId, accessToken } = await loadAccountMetaCredentials(
       db,
       accountId,

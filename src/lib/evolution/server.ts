@@ -20,6 +20,17 @@ export interface EvolutionConfigRow {
   qr_updated_at: string | null;
   last_event_at: string | null;
   is_default_outbound: boolean;
+  created_by?: string | null;
+}
+
+/** Friendly message for setup problems that would otherwise surface as "Internal server error". */
+export function evolutionSetupError(err: unknown): string | null {
+  const e = err as { message?: string; code?: string } | null;
+  const msg = String(e?.message ?? err ?? "");
+  if (e?.code === "42P01" || e?.code === "PGRST205" || /evolution_(config|event_log)|schema cache|does not exist/i.test(msg))
+    return "The Evolution tables are missing — run migration 061_evolution_channel.sql in Supabase (SQL Editor), then try again.";
+  if (/ENCRYPTION_KEY|Invalid key length/i.test(msg)) return "ENCRYPTION_KEY is not set correctly in Vercel environment variables.";
+  return null;
 }
 
 export async function loadEvolutionConfig(accountId: string): Promise<EvolutionConfigRow | null> {
