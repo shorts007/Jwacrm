@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 import { Loader2, Send } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
-import { DEFAULT_TEMPLATE_NAMES, type CampaignType } from "@/lib/lulu";
+import { DEFAULT_TEMPLATE_NAMES, campaignNeedsOffer, type CampaignType } from "@/lib/lulu";
 
 export interface TestCampaign {
   id: string;
@@ -17,6 +17,7 @@ export interface TestCampaign {
   template_name_en?: string | null;
   template_name_bilingual?: string | null;
   test_phones?: string[] | null;
+  offer_id?: string | null;
 }
 
 interface SendResult {
@@ -38,6 +39,8 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
   const [msg, setMsg] = useState<string | null>(null);
   const [result, setResult] = useState<SendResult | null>(null);
   const [synced, setSynced] = useState<{ name: string; language: string | null; status: string | null }[]>([]);
+  const [offers, setOffers] = useState<{ id: string; offer_code: string; name: string; active: boolean }[]>([]);
+  const [offerId, setOfferId] = useState("");
 
   // Templates already synced from Meta — offered as suggestions so names match exactly.
   useEffect(() => {
@@ -46,6 +49,11 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
       .select("name, language, status")
       .order("name")
       .then(({ data }) => setSynced((data ?? []) as typeof synced));
+    void createClient()
+      .from("lulu_offers")
+      .select("id, offer_code, name, active")
+      .order("offer_code")
+      .then(({ data }) => setOffers((data ?? []) as typeof offers));
   }, []);
 
   useEffect(() => {
@@ -55,18 +63,24 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
     setEn(c.template_name_en ?? d?.en ?? "");
     setBi(c.template_name_bilingual ?? d?.bi ?? "");
     setPhones((c.test_phones ?? []).join(", "));
+    setOfferId(c.offer_id ?? "");
     setResult(null);
     setMsg(null);
-  }, [c?.id, c?.template_name_ar, c?.template_name_en, c?.template_name_bilingual, c?.test_phones]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [c?.id, c?.template_name_ar, c?.template_name_en, c?.template_name_bilingual, c?.test_phones, c?.offer_id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!c) return null;
 
   const parsedPhones = phones.split(/[,\n]/).map((p) => p.trim().replace(/[\s()-]/g, "")).filter(Boolean);
   const badPhone = parsedPhones.find((p) => !/^\+\d{8,15}$/.test(p));
 
-  const save = async () => {
-    if (badPhone) return setMsg(`"${badPhone}" must look like +966501234567 (leading +, country code).`);
-    setBusy(true);
+  const needsOffer = campaignNeedsOffer(c.campaign_type);
+
+  // Writes what is on screen. Returns false (with a message) when it could not.
+  const persist = async (): Promise<boolean> => {
+    if (badPhone) {
+      setMsg(`"${badPhone}" must look like +966501234567 (leading +, country code).`);
+      return false;
+    }
     const { error } = await createClient()
       .from("lulu_campaigns")
       .update({
@@ -74,11 +88,24 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
         template_name_en: en.trim() || null,
         template_name_bilingual: bi.trim() || null,
         test_phones: parsedPhones,
+        ...(needsOffer ? { offer_id: offerId || null } : {}),
       })
       .eq("id", c.id);
+    if (error) {
+      setMsg(error.message);
+      return false;
+    }
+    return true;
+  };
+
+  const save = async () => {
+    setBusy(true);
+    const ok = await persist();
     setBusy(false);
-    setMsg(error ? error.message : "Saved.");
-    if (!error) onSaved();
+    if (ok) {
+      setMsg("Saved.");
+      onSaved();
+    }
   };
 
   const send = async (language: "ar" | "en" | "bi") => {
@@ -86,6 +113,13 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
     setMsg(null);
     setResult(null);
     try {
+      // Send exactly what is on screen: the (pre-filled) template names, numbers and offer are
+      // saved first, so a test never fails on "set the template name" while the fields look filled.
+      if (needsOffer && !offerId) {
+        throw new Error("This campaign's message mentions an offer — pick one in “Offer” below (create offers on the Offers page).");
+      }
+      if (!(await persist())) return;
+      onSaved();
       const res = await fetch("/api/lulu/test-send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -137,6 +171,26 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
           Bilingual template name (AR + EN, with language buttons)
           <input className={input} list="lulu-synced-templates" value={bi} onChange={(e) => setBi(e.target.value)} dir="ltr" />
         </label>
+        {needsOffer && (
+          <label className="space-y-1 text-xs text-muted-foreground">
+            Offer (named in the message)
+            <select className={input} value={offerId} onChange={(e) => setOfferId(e.target.value)}>
+              <option value="">— pick an offer —</option>
+              {offers.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.offer_code} · {o.name}
+                  {o.active ? "" : " (inactive)"}
+                </option>
+              ))}
+            </select>
+            {offers.length === 0 && (
+              <span className="block">
+                No offers yet — create one on the{" "}
+                <a href="/engagement/offers" className="text-primary underline">Offers page</a>.
+              </span>
+            )}
+          </label>
+        )}
         <label className="space-y-1 text-xs text-muted-foreground">
           Test phone numbers (comma-separated, with +country code)
           <input className={input} value={phones} onChange={(e) => setPhones(e.target.value)} placeholder="+966546182300" dir="ltr" />
@@ -163,7 +217,7 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
             Send test ({l === "bi" ? "Both languages" : l === "ar" ? "Arabic" : "English"})
           </button>
         ))}
-        <span className="text-xs text-muted-foreground">Save first if you changed the fields.</span>
+        <span className="text-xs text-muted-foreground">Sending also saves these fields.</span>
       </div>
       {msg && <p className="text-sm text-muted-foreground">{msg}</p>}
       {result && (
