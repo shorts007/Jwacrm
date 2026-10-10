@@ -102,6 +102,8 @@ export interface SendMessageResult {
   messageId: string;
   /** Meta's `wamid` for the delivered message. */
   whatsappMessageId: string;
+  /** Which number it left from: Meta Cloud API or the WhatsApp app number (Evolution). */
+  channel: 'meta' | 'evolution';
 }
 
 /**
@@ -531,5 +533,9 @@ export async function sendMessageToConversation(
     );
   }
 
-  return { messageId: messageRecord.id, whatsappMessageId: waMessageId };
+  return {
+    messageId: messageRecord.id,
+    whatsappMessageId: waMessageId,
+    channel: transport.channel,
+  };
 }

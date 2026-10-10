@@ -181,7 +181,7 @@ export async function POST(request: Request) {
     const params = wantedParams.slice(0, varCount);
 
     const admin = supabaseAdmin();
-    const results: { phone: string; ok: boolean; error?: string; code?: string }[] = [];
+    const results: { phone: string; ok: boolean; error?: string; code?: string; channel?: string }[] = [];
     const { data: optRows } = await admin
       .from('lulu_opt_outs')
       .select('phone_digits')
@@ -227,7 +227,7 @@ export async function POST(request: Request) {
           sent_at: new Date().toISOString(),
           wa_message_id: sent.whatsappMessageId,
         });
-        results.push({ phone, ok: true });
+        results.push({ phone, ok: true, channel: sent.channel });
       } catch (e) {
         const message = e instanceof Error ? e.message : 'Send failed';
         await admin
