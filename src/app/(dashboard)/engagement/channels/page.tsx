@@ -1,7 +1,7 @@
 "use client";
 
 // WhatsApp channels — connect a phone number through Evolution API (QR code) as a second channel
-// next to the Meta Cloud API connection. Phase 1: connect, status, test send, diagnostics.
+// next to the Meta Cloud API connection: connect, status, default sender, test send, diagnostics.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
@@ -18,6 +18,7 @@ interface Status {
   qrUpdatedAt?: string | null;
   lastEventAt?: string | null;
   webhookUrl?: string;
+  isDefaultOutbound?: boolean;
   events?: { received_at: string; event: string | null; outcome: string | null }[];
 }
 
@@ -131,6 +132,21 @@ export default function ChannelsPage() {
       await load();
     });
 
+  const setDefault = (on: boolean) =>
+    run("default", async () => {
+      if (
+        on &&
+        !window.confirm(
+          "Send through this number?\n\nCampaigns, broadcasts and new conversations will go out from the WhatsApp app number. " +
+            "Chats keep replying on the number the customer wrote to. Keep volumes low — app numbers can be banned for bulk sending."
+        )
+      )
+        return;
+      await post("/api/evolution/default", { on });
+      setMsg({ text: on ? "Outgoing messages now go through the WhatsApp app number." : "Outgoing messages now go through Meta." });
+      await load();
+    });
+
   const unlink = () =>
     run("logout", async () => {
       if (!window.confirm("Unlink this WhatsApp number from WACRM? You will need to scan a QR code again.")) return;
@@ -225,6 +241,35 @@ export default function ChannelsPage() {
           </div>
         )}
 
+        {st?.configured && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
+            <div className="max-w-xl text-sm">
+              <p className="font-medium text-foreground">Send through this number</p>
+              <p className="text-xs text-muted-foreground">
+                On: LuLu campaigns, broadcasts and new conversations go out from <b>+{st.connectedNumber ?? "this number"}</b> (templates are sent as
+                their approved text, buttons as numbered options). Replies always use the number the customer wrote to. Off: everything uses Meta.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={!!st.isDefaultOutbound}
+              aria-label="Send through this number"
+              disabled={!!busy || (!st.isDefaultOutbound && st.state !== "open")}
+              onClick={() => void setDefault(!st.isDefaultOutbound)}
+              className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${
+                st.isDefaultOutbound ? "bg-emerald-500" : "bg-muted-foreground/30"
+              }`}
+            >
+              <span
+                className={`inline-block h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                  st.isDefaultOutbound ? "translate-x-5" : "translate-x-0.5"
+                }`}
+              />
+            </button>
+          </div>
+        )}
+
         {st?.state === "open" && (
           <div className="flex flex-wrap items-end gap-2 border-t border-border pt-4">
             <label className="space-y-1 text-xs text-muted-foreground">
@@ -261,7 +306,8 @@ export default function ChannelsPage() {
             </tbody>
           </table>
           <p className="text-xs text-muted-foreground">
-            Incoming messages are recorded here for now. They start appearing in the Inbox in the next phase.
+            Messages to this number appear in the Inbox; messages you type on the phone appear there too, as your replies. If events stop
+            arriving after an update, click <b>Re-check connection</b> once to refresh the webhook.
           </p>
         </section>
       )}

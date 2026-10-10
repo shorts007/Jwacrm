@@ -129,7 +129,6 @@ export const WEBHOOK_EVENTS = [
   "QRCODE_UPDATED",
   "MESSAGES_UPSERT",
   "MESSAGES_UPDATE",
-  "SEND_MESSAGE",
 ] as const;
 
 /** Point the instance's webhook at WACRM (media sent inline as base64). */
@@ -160,6 +159,62 @@ export async function sendText(c: EvolutionConn, number: string, text: string, o
   });
   return { id: r?.key?.id ?? null };
 }
+
+const digits = (n: string) => n.replace(/\D/g, "");
+
+/** Send an image / video / document by public URL, with an optional caption. */
+export async function sendMedia(
+  c: EvolutionConn,
+  number: string,
+  m: { kind: "image" | "video" | "document"; url: string; caption?: string; fileName?: string; mimetype?: string; delayMs?: number },
+): Promise<{ id: string | null }> {
+  const r = await call<{ key?: { id?: string } }>(c, "POST", `/message/sendMedia/${enc(c.instance)}`, {
+    number: digits(number),
+    mediatype: m.kind,
+    media: m.url,
+    ...(m.caption ? { caption: m.caption } : {}),
+    ...(m.fileName ? { fileName: m.fileName } : {}),
+    ...(m.mimetype ? { mimetype: m.mimetype } : {}),
+    ...(m.delayMs ? { delay: m.delayMs } : {}),
+  }, 60_000);
+  return { id: r?.key?.id ?? null };
+}
+
+/** Send a voice note (the audio is converted by Evolution). */
+export async function sendAudio(c: EvolutionConn, number: string, url: string): Promise<{ id: string | null }> {
+  const r = await call<{ key?: { id?: string } }>(c, "POST", `/message/sendWhatsAppAudio/${enc(c.instance)}`, { number: digits(number), audio: url }, 60_000);
+  return { id: r?.key?.id ?? null };
+}
+
+/** React to a message (empty emoji removes the reaction). */
+export async function sendReaction(c: EvolutionConn, key: { remoteJid: string; fromMe: boolean; id: string }, emoji: string): Promise<void> {
+  await call(c, "POST", `/message/sendReaction/${enc(c.instance)}`, { key, reaction: emoji });
+}
+
+/** Show "typing…" for `delayMs` (best effort). */
+export async function sendPresence(c: EvolutionConn, number: string, delayMs = 3000): Promise<void> {
+  await call(c, "POST", `/chat/sendPresence/${enc(c.instance)}`, { number: digits(number), presence: "composing", delay: delayMs }, delayMs + 10_000);
+}
+
+/** Mark inbound messages as read (blue ticks). */
+export async function markRead(c: EvolutionConn, keys: { remoteJid: string; fromMe: boolean; id: string }[]): Promise<void> {
+  await call(c, "POST", `/chat/markMessageAsRead/${enc(c.instance)}`, { readMessages: keys });
+}
+
+/** Download a received media message as base64 (when the webhook did not include it). */
+export async function getBase64FromMedia(c: EvolutionConn, messageId: string): Promise<{ base64: string | null; mimetype: string | null; fileName: string | null }> {
+  const r = await call<{ base64?: string; mimetype?: string; fileName?: string }>(
+    c,
+    "POST",
+    `/chat/getBase64FromMediaMessage/${enc(c.instance)}`,
+    { message: { key: { id: messageId } }, convertToMp4: false },
+    60_000,
+  );
+  return { base64: r?.base64 ?? null, mimetype: r?.mimetype ?? null, fileName: r?.fileName ?? null };
+}
+
+/** "966501234567" → "966501234567@s.whatsapp.net" */
+export const userJid = (number: string) => `${digits(number)}@s.whatsapp.net`;
 
 /** "966501234567@s.whatsapp.net" → "966501234567" */
 export const jidDigits = (jid: string | null | undefined) => (jid ?? "").split("@")[0].split(":")[0].replace(/\D/g, "");

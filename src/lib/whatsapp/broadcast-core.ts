@@ -18,8 +18,13 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { sendTemplateMessage } from '@/lib/whatsapp/meta-api';
-import { decrypt } from '@/lib/whatsapp/encryption';
+import {
+  ChannelError,
+  evolutionBroadcastPause,
+  resolveTransport,
+  sendTemplateVia,
+  type Transport,
+} from '@/lib/channels/outbound';
 import {
   parseInternationalPhone,
   phoneVariants,
@@ -67,6 +72,8 @@ export interface BroadcastPlan {
   templateLanguage: string;
   phoneNumberId: string;
   accessToken: string;
+  /** Sending number. Absent on older plans → Meta with the fields above. */
+  transport?: Transport;
   templateRow: MessageTemplate | null;
   planned: PlannedRecipient[];
   /** Phones rejected up front (invalid E.164) — counted as failed. */
@@ -107,21 +114,20 @@ export async function createBroadcast(
     );
   }
 
-  // Config (fail fast + provides the audit trail owner already resolved
-  // by the caller). Meta send needs phone_number_id + decrypted token.
-  const { data: config, error: configError } = await db
-    .from('whatsapp_config')
-    .select('*')
-    .eq('account_id', accountId)
-    .single();
-  if (configError || !config) {
-    throw new BroadcastError(
-      'whatsapp_not_configured',
-      'WhatsApp not configured. Please set up your WhatsApp integration first.',
-      400
-    );
+  // Which number sends — the account's default sender (@/lib/channels/outbound).
+  let transport: Transport;
+  try {
+    transport = await resolveTransport(db, accountId, { channel: 'default' });
+  } catch (err) {
+    if (err instanceof ChannelError) {
+      throw new BroadcastError(
+        err.code === 'not_configured' ? 'whatsapp_not_configured' : `channel_${err.code}`,
+        err.message,
+        400
+      );
+    }
+    throw err;
   }
-  const accessToken = decrypt(config.access_token);
 
   // Template row (once) for header/button components; guard a
   // malformed local row rather than N identical opaque failures.
@@ -237,8 +243,9 @@ export async function createBroadcast(
     broadcastId,
     templateName,
     templateLanguage: resolvedTemplate.language,
-    phoneNumberId: config.phone_number_id,
-    accessToken,
+    phoneNumberId: transport.channel === 'meta' ? transport.phoneNumberId : '',
+    accessToken: transport.channel === 'meta' ? transport.accessToken : '',
+    transport,
     templateRow,
     planned,
     rejected,
@@ -262,16 +269,24 @@ export async function deliverBroadcast(
   db: SupabaseClient,
   plan: BroadcastPlan
 ): Promise<void> {
+  const transport: Transport = plan.transport ?? {
+    channel: 'meta',
+    phoneNumberId: plan.phoneNumberId,
+    accessToken: plan.accessToken,
+  };
+  let first = true;
   for (const recipient of plan.planned) {
-    const variants = phoneVariants(recipient.phone);
+    // The WhatsApp app number gets a human-like gap between recipients.
+    if (!first) await evolutionBroadcastPause(transport);
+    first = false;
+    const variants =
+      transport.channel === 'meta' ? phoneVariants(recipient.phone) : [recipient.phone];
     let sentMessageId: string | null = null;
     let lastError: string | null = null;
 
     for (const variant of variants) {
       try {
-        const result = await sendTemplateMessage({
-          phoneNumberId: plan.phoneNumberId,
-          accessToken: plan.accessToken,
+        const result = await sendTemplateVia(transport, {
           to: variant,
           templateName: plan.templateName,
           language: plan.templateLanguage,

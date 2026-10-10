@@ -1,13 +1,17 @@
 import {
-  sendInteractiveButtons,
-  sendInteractiveList,
-  sendMediaMessage,
-  sendTextMessage,
   type InteractiveButton,
   type InteractiveListSection,
   type MediaKind,
 } from '@/lib/whatsapp/meta-api'
 import type { InteractiveMessagePayload } from '@/lib/whatsapp/interactive'
+import {
+  rememberConversationChannel,
+  resolveTransport,
+  sendButtonsVia,
+  sendListVia,
+  sendMediaVia,
+  sendTextVia,
+} from '@/lib/channels/outbound'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import {
   phoneVariants,
@@ -115,22 +119,21 @@ export async function engineSendText(
   }
   const sanitized = sendTarget.target
 
-  const { phoneNumberId, accessToken } = await loadAccountMetaCredentials(
-    db,
-    args.accountId,
-  )
+  // Meta or the WhatsApp app number — the conversation's own number (@/lib/channels/outbound).
+  const transport = await resolveTransport(db, args.accountId, {
+    conversationId: args.conversationId,
+  })
 
   const attempt = async (phone: string): Promise<string> => {
-    const r = await sendTextMessage({
-      phoneNumberId,
-      accessToken,
+    const r = await sendTextVia(transport, {
       to: phone,
       text: args.text,
     })
     return r.messageId
   }
 
-  const variants = sendTarget.isPhone ? phoneVariants(sanitized) : [sanitized]
+  const variants =
+    sendTarget.isPhone && transport.channel === 'meta' ? phoneVariants(sanitized) : [sanitized]
   let workingPhone = sanitized
   let waMessageId = ''
   let lastError: unknown = null
@@ -147,6 +150,7 @@ export async function engineSendText(
     }
   }
   if (lastError) throw lastError
+  await rememberConversationChannel(args.accountId, args.conversationId, transport)
 
   if (sendTarget.isPhone && workingPhone !== sanitized) {
     await db.from('contacts').update({ phone: workingPhone }).eq('id', contact.id)
@@ -229,15 +233,13 @@ export async function engineSendMedia(
   }
   const sanitized = sendTarget.target
 
-  const { phoneNumberId, accessToken } = await loadAccountMetaCredentials(
-    db,
-    args.accountId,
-  )
+  // Meta or the WhatsApp app number — the conversation's own number (@/lib/channels/outbound).
+  const transport = await resolveTransport(db, args.accountId, {
+    conversationId: args.conversationId,
+  })
 
   const attempt = async (phone: string): Promise<string> => {
-    const r = await sendMediaMessage({
-      phoneNumberId,
-      accessToken,
+    const r = await sendMediaVia(transport, {
       to: phone,
       kind: args.kind,
       link: args.link,
@@ -247,7 +249,8 @@ export async function engineSendMedia(
     return r.messageId
   }
 
-  const variants = sendTarget.isPhone ? phoneVariants(sanitized) : [sanitized]
+  const variants =
+    sendTarget.isPhone && transport.channel === 'meta' ? phoneVariants(sanitized) : [sanitized]
   let workingPhone = sanitized
   let waMessageId = ''
   let lastError: unknown = null
@@ -264,6 +267,7 @@ export async function engineSendMedia(
     }
   }
   if (lastError) throw lastError
+  await rememberConversationChannel(args.accountId, args.conversationId, transport)
 
   if (sendTarget.isPhone && workingPhone !== sanitized) {
     await db.from('contacts').update({ phone: workingPhone }).eq('id', contact.id)
@@ -385,16 +389,14 @@ async function sendInteractiveViaMeta(
   }
   const sanitized = sendTarget.target
 
-  const { phoneNumberId, accessToken } = await loadAccountMetaCredentials(
-    db,
-    input.accountId,
-  )
+  // Meta or the WhatsApp app number — the conversation's own number (@/lib/channels/outbound).
+  const transport = await resolveTransport(db, input.accountId, {
+    conversationId: input.conversationId,
+  })
 
   const attempt = async (phone: string): Promise<string> => {
     if (input.kind === 'buttons') {
-      const r = await sendInteractiveButtons({
-        phoneNumberId,
-        accessToken,
+      const r = await sendButtonsVia(transport, {
         to: phone,
         bodyText: input.bodyText,
         buttons: input.buttons,
@@ -403,9 +405,7 @@ async function sendInteractiveViaMeta(
       })
       return r.messageId
     }
-    const r = await sendInteractiveList({
-      phoneNumberId,
-      accessToken,
+    const r = await sendListVia(transport, {
       to: phone,
       bodyText: input.bodyText,
       buttonLabel: input.buttonLabel,
@@ -419,7 +419,8 @@ async function sendInteractiveViaMeta(
   // Same phone-variant retry as automations/meta-send.ts. Numbers
   // registered with/without a trunk 0 + Meta's sandbox quirks all
   // need this to reliably land a message.
-  const variants = sendTarget.isPhone ? phoneVariants(sanitized) : [sanitized]
+  const variants =
+    sendTarget.isPhone && transport.channel === 'meta' ? phoneVariants(sanitized) : [sanitized]
   let workingPhone = sanitized
   let waMessageId = ''
   let lastError: unknown = null
@@ -436,6 +437,7 @@ async function sendInteractiveViaMeta(
     }
   }
   if (lastError) throw lastError
+  await rememberConversationChannel(input.accountId, input.conversationId, transport)
 
   if (sendTarget.isPhone && workingPhone !== sanitized) {
     await db.from('contacts').update({ phone: workingPhone }).eq('id', contact.id)

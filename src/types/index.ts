@@ -180,6 +180,8 @@ export interface Conversation {
   created_at: string;
   updated_at: string;
   contact?: Contact;
+  /** Number the chat is on: Meta Cloud API or the WhatsApp app number (Evolution). Null = account default. */
+  channel?: 'meta' | 'evolution' | null;
   /**
    * AI auto-reply state for this thread (migration 029 + 033):
    *  - `ai_autoreply_disabled` — the bot is paused here (a human took

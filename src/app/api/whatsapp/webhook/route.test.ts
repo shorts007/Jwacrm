@@ -1012,3 +1012,41 @@ describe('status webhook: failed statuses keep Meta\'s reason (#535)', () => {
     expect(h.state.recipientUpdates[0]).not.toHaveProperty('error_code')
   })
 })
+
+// ============================================================
+// Shared pipeline used by the Evolution (WhatsApp app number) channel.
+// ============================================================
+
+describe('inbound pipeline: channel options (Evolution)', () => {
+  it('uses pre-parsed content and treats a numbered answer as a button tap', async () => {
+    const { processMessage } = await import('@/lib/whatsapp/inbound')
+    const parseContent = vi.fn(async () => ({
+      contentText: 'English',
+      mediaUrl: null,
+      mediaType: null,
+      interactiveReplyId: 'English',
+      contentType: 'interactive',
+    }))
+    await processMessage(
+      { id: 'EVO1', from: '15551230000', timestamp: '1700000000', type: 'text', text: { body: '1' } },
+      { wa_id: '15551230000', profile: { name: 'Ada' } },
+      'acc-1',
+      'user-1',
+      '',
+      false,
+      { channel: 'evolution', parseContent },
+    )
+    expect(parseContent).toHaveBeenCalledWith({ conversationId: 'conv-1', contactId: expect.any(String) })
+    // Meta media is never fetched for this channel.
+    expect(mockGetMediaUrl).not.toHaveBeenCalled()
+    const row = h.state.upsertCalls[0].row
+    expect(row.content_type).toBe('interactive')
+    expect(row.content_text).toBe('English')
+    expect(row.interactive_reply_id).toBe('English')
+    expect(h.dispatchInboundToFlows).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.objectContaining({ kind: 'interactive_reply', reply_id: 'English' }),
+      }),
+    )
+  })
+})

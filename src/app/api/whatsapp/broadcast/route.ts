@@ -1,7 +1,12 @@
 import { NextResponse } from 'next/server'
 import { requireRole, toErrorResponse } from '@/lib/auth/account'
-import { sendTemplateMessage } from '@/lib/whatsapp/meta-api'
-import { decrypt } from '@/lib/whatsapp/encryption'
+import {
+  ChannelError,
+  evolutionBroadcastPause,
+  resolveTransport,
+  sendTemplateVia,
+  type Transport,
+} from '@/lib/channels/outbound'
 import type { SendTimeParams } from '@/lib/whatsapp/template-send-builder'
 import { resolveTemplateRow } from '@/lib/whatsapp/template-body'
 import {
@@ -120,23 +125,16 @@ export async function POST(request: Request) {
       )
     }
 
-    const { data: config, error: configError } = await supabase
-      .from('whatsapp_config')
-      .select('*')
-      .eq('account_id', accountId)
-      .single()
-
-    if (configError || !config) {
-      return NextResponse.json(
-        {
-          error:
-            'WhatsApp not configured. Please set up your WhatsApp integration first.',
-        },
-        { status: 400 }
-      )
+    // Which number sends — the account's default sender (@/lib/channels/outbound).
+    let transport: Transport
+    try {
+      transport = await resolveTransport(supabase, accountId, { channel: 'default' })
+    } catch (err) {
+      if (err instanceof ChannelError) {
+        return NextResponse.json({ error: err.message }, { status: 400 })
+      }
+      throw err
     }
-
-    const accessToken = decrypt(config.access_token)
 
     // Load the template row once so sendTemplateMessage can build
     // header + button components on each iteration. Loading inside
@@ -164,8 +162,12 @@ export async function POST(request: Request) {
     let sentCount = 0
     let failedCount = 0
 
+    let first = true
     for (const recipient of recipients) {
       const sanitized = sanitizePhoneForMeta(recipient.phone)
+      // The WhatsApp app number gets a human-like gap between recipients.
+      if (!first) await evolutionBroadcastPause(transport)
+      first = false
 
       if (!isValidE164(sanitized)) {
         results.push({
@@ -179,15 +181,13 @@ export async function POST(request: Request) {
 
       // Retry with phone variants on "not in allowed list" so numbers
       // that differ only in a trunk-prefix 0 still reach recipients.
-      const variants = phoneVariants(sanitized)
+      const variants = transport.channel === 'meta' ? phoneVariants(sanitized) : [sanitized]
       let sentMessageId: string | null = null
       let lastError: string | null = null
 
       for (const variant of variants) {
         try {
-          const result = await sendTemplateMessage({
-            phoneNumberId: config.phone_number_id,
-            accessToken,
+          const result = await sendTemplateVia(transport, {
             to: variant,
             templateName: template_name,
             language: resolvedTemplate.language,

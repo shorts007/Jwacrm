@@ -20,6 +20,7 @@ export interface EvolutionConfigRow {
   qr_updated_at: string | null;
   last_event_at: string | null;
   is_default_outbound: boolean;
+  created_by?: string | null;
 }
 
 /** Friendly message for setup problems that would otherwise surface as "Internal server error". */
