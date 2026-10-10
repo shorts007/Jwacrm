@@ -24,7 +24,7 @@ interface SendResult {
   template: string;
   language: string;
   params: string[];
-  results: { phone: string; ok: boolean; error?: string }[];
+  results: { phone: string; ok: boolean; error?: string; channel?: string }[];
 }
 
 export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; onSaved: () => void }) {
@@ -41,6 +41,7 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
   const [synced, setSynced] = useState<{ name: string; language: string | null; status: string | null }[]>([]);
   const [offers, setOffers] = useState<{ id: string; offer_code: string; name: string; active: boolean }[]>([]);
   const [offerId, setOfferId] = useState("");
+  const [sender, setSender] = useState<{ evolutionDefault: boolean; evolutionState: string | null } | null>(null);
 
   // Templates already synced from Meta — offered as suggestions so names match exactly.
   useEffect(() => {
@@ -49,6 +50,10 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
       .select("name, language, status")
       .order("name")
       .then(({ data }) => setSynced((data ?? []) as typeof synced));
+    void fetch("/api/channels/summary")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => setSender(j))
+      .catch(() => undefined);
     void createClient()
       .from("lulu_offers")
       .select("id, offer_code, name, active")
@@ -219,13 +224,26 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
         ))}
         <span className="text-xs text-muted-foreground">Sending also saves these fields.</span>
       </div>
+      {sender && (
+        <p className="text-xs text-muted-foreground">
+          Sends from:{" "}
+          {sender.evolutionDefault ? (
+            <b className="text-foreground">the WhatsApp app number (Evolution)</b>
+          ) : (
+            <>
+              <b className="text-foreground">the Meta number</b> — to use the WhatsApp app number, turn on “Send through this number” on{" "}
+              <a href="/engagement/channels" className="text-primary underline">Channels</a>.
+            </>
+          )}
+        </p>
+      )}
       {msg && <p className="text-sm text-muted-foreground">{msg}</p>}
       {result && (
         <div className="space-y-1 rounded-lg bg-muted/50 p-3 text-sm">
           <div>Template <b>{result.template}</b> ({result.language}) · variables: {result.params.join(" | ")}</div>
           {result.results.map((r) => (
             <div key={r.phone} className={r.ok ? "text-emerald-600" : "text-destructive"}>
-              {r.phone}: {r.ok ? "sent" : `failed — ${r.error}`}
+              {r.phone}: {r.ok ? `sent${r.channel ? ` via ${r.channel === "evolution" ? "WhatsApp app number" : "Meta"}` : ""}` : `failed — ${r.error}`}
             </div>
           ))}
         </div>

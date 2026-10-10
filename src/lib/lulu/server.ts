@@ -7,7 +7,7 @@ import type { DryRunProfileRow } from "./dry-run";
 import { DEFAULT_SEND_SETTINGS, type SendSettings } from "./sender";
 import { chooseTemplateKind, type TemplateChoiceKind } from "./messages";
 import { OFFER_COLUMNS, offerFromRow, type Offer, type OfferRow } from "./offers";
-import type { CampaignConfig, ContactPolicy } from "./types";
+import type { CampaignConfig, ContactPolicy, PastSend } from "./types";
 
 const PAGE = 1000;
 const PARALLEL = 8;
@@ -57,29 +57,45 @@ export interface LiveCampaign extends CampaignConfig {
   promoValidUntil: string | null;
 }
 
+const CAMPAIGN_COLUMNS =
+  "id, campaign_code, name, campaign_type, rule_params, offer_id, active, mode, status, priority, template_name_ar, template_name_en, template_name_bilingual, holdout_pct, attribution_days, promo_image_url, promo_text_ar, promo_text_en, promo_valid_until";
+
+export function liveCampaignFromRow(r: Record<string, unknown>): LiveCampaign {
+  return {
+    ...campaignFromRow(r as unknown as CampaignRow),
+    templateAr: (r.template_name_ar as string | null) ?? null,
+    templateEn: (r.template_name_en as string | null) ?? null,
+    templateBi: (r.template_name_bilingual as string | null) ?? null,
+    holdoutPct: Number(r.holdout_pct ?? 0),
+    attributionDays: Number(r.attribution_days ?? 7),
+    promoImageUrl: (r.promo_image_url as string | null) ?? null,
+    promoTextAr: (r.promo_text_ar as string | null) ?? null,
+    promoTextEn: (r.promo_text_en as string | null) ?? null,
+    promoValidUntil: (r.promo_valid_until as string | null) ?? null,
+  };
+}
+
 /** Campaigns allowed to send to customers right now: Live switch on, mode LIVE, not paused/stopped. */
 export async function loadLiveCampaigns(db: SupabaseClient, accountId: string): Promise<LiveCampaign[]> {
   const { data, error } = await db
     .from("lulu_campaigns")
-    .select("id, campaign_code, name, campaign_type, rule_params, offer_id, active, mode, status, priority, template_name_ar, template_name_en, template_name_bilingual, holdout_pct, attribution_days, promo_image_url, promo_text_ar, promo_text_en, promo_valid_until")
+    .select(CAMPAIGN_COLUMNS)
     .eq("account_id", accountId)
     .eq("active", true)
     .eq("mode", "LIVE");
   if (error) throw error;
   return (data ?? [])
     .filter((r) => !["PAUSED", "CANCELLED", "COMPLETED", "REJECTED"].includes(r.status as string))
-    .map((r) => ({
-      ...campaignFromRow(r as unknown as CampaignRow),
-      templateAr: (r.template_name_ar as string | null) ?? null,
-      templateEn: (r.template_name_en as string | null) ?? null,
-      templateBi: (r.template_name_bilingual as string | null) ?? null,
-      holdoutPct: Number(r.holdout_pct ?? 0),
-      attributionDays: Number(r.attribution_days ?? 7),
-      promoImageUrl: (r.promo_image_url as string | null) ?? null,
-      promoTextAr: (r.promo_text_ar as string | null) ?? null,
-      promoTextEn: (r.promo_text_en as string | null) ?? null,
-      promoValidUntil: (r.promo_valid_until as string | null) ?? null,
-    }));
+    .map((r) => liveCampaignFromRow(r as Record<string, unknown>));
+}
+
+/** One campaign in the live shape, whatever its mode (for previews). */
+export async function loadCampaign(db: SupabaseClient, accountId: string, id: string): Promise<(LiveCampaign & { mode: string; status: string }) | null> {
+  const { data, error } = await db.from("lulu_campaigns").select(CAMPAIGN_COLUMNS).eq("account_id", accountId).eq("id", id).maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  const r = data as Record<string, unknown>;
+  return { ...liveCampaignFromRow(r), mode: String(r.mode ?? ""), status: String(r.status ?? "") };
 }
 
 export async function loadPolicyAndSettings(
@@ -208,3 +224,43 @@ export function promoBlockReason(c: LiveCampaign, now: Date): string | null {
   if (c.promoValidUntil < today) return `promotion ended ${c.promoValidUntil}`;
   return null;
 }
+
+/**
+ * What the engine needs to know about past sends: messages in the frequency-cap window, which
+ * campaigns each customer already received (60 days, incl. holdouts), and the STOP list.
+ */
+export async function loadSendHistory(db: SupabaseClient, accountId: string, now: Date, policy: ContactPolicy) {
+  const DAY = 86_400_000;
+  const [recent, allCampaigns, stops] = await Promise.all([
+    db
+      .from("lulu_customer_next_actions")
+      .select("customer_id, campaign_id, sent_at, status, created_at")
+      .eq("account_id", accountId)
+      .eq("is_test", false)
+      .or("status.eq.SENT,skip_reason.eq.holdout")
+      .gte("created_at", new Date(now.getTime() - 60 * DAY).toISOString())
+      .range(0, 49999),
+    db.from("lulu_campaigns").select("id, campaign_code").eq("account_id", accountId),
+    db.from("lulu_opt_outs").select("phone_digits").eq("account_id", accountId).range(0, 99999),
+  ]);
+  for (const r of [recent, allCampaigns, stops]) if (r.error) throw r.error;
+  const codeById = new Map((allCampaigns.data ?? []).map((c) => [c.id as string, c.campaign_code as string]));
+  const history = new Map<string, PastSend[]>();
+  const receivedCodes = new Map<string, Set<string>>();
+  const windowStart = now.getTime() - Math.max(policy.promoWindowDays, policy.marketingWindowDays) * DAY;
+  for (const a of recent.data ?? []) {
+    const cid = a.customer_id as string;
+    const sentAt = new Date((a.sent_at ?? a.created_at) as string);
+    if (a.status === "SENT" && sentAt.getTime() >= windowStart) {
+      if (!history.has(cid)) history.set(cid, []);
+      history.get(cid)!.push({ sentAt, isPromo: true });
+    }
+    const code = codeById.get(a.campaign_id as string);
+    if (code) {
+      if (!receivedCodes.has(cid)) receivedCodes.set(cid, new Set());
+      receivedCodes.get(cid)!.add(code);
+    }
+  }
+  return { history, receivedCodes, stopDigits: new Set((stops.data ?? []).map((s) => s.phone_digits as string)) };
+}
+

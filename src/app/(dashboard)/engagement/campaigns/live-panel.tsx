@@ -5,6 +5,7 @@
 // workflow calling /api/v1/lulu/campaigns/prepare and /send-next.
 
 import { useCallback, useEffect, useState } from "react";
+import { PreviewPanel } from "./preview-panel";
 import { AlertTriangle, Pause, Play, RefreshCw, Radio } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { DEFAULT_SEND_SETTINGS, OFFER_CAMPAIGNS, riyadhDayStart, totalDuration, type CampaignType, type SendSettings } from "@/lib/lulu";
@@ -46,6 +47,7 @@ export function LivePanel({ accountId, campaigns, onChanged }: { accountId: stri
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [offers, setOffers] = useState<{ id: string; offer_code: string; name: string; active: boolean }[]>([]);
+  const [previewId, setPreviewId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const db = createClient();
@@ -119,7 +121,7 @@ export function LivePanel({ accountId, campaigns, onChanged }: { accountId: stri
       const ok = window.confirm(
         `Make "${c.name}" LIVE?\n\nReal customers will receive WhatsApp messages (max ${settings.dailyCap}/day) the next time the daily sender runs.\n` +
           `Templates: both ${c.template_name_bilingual ?? "—"} · AR ${c.template_name_ar ?? "—"} · EN ${c.template_name_en ?? "—"}\n` +
-          `Customers who haven't chosen a language get the bilingual message.\nThe campaign's Live switch must also be On.`,
+          `Customers who haven't chosen a language get the bilingual message.\nThe campaign's Live switch must also be On.\n\nTip: use Preview first to see who it reaches and the exact messages.`,
       );
       if (!ok) return;
     }
@@ -255,6 +257,9 @@ export function LivePanel({ accountId, campaigns, onChanged }: { accountId: stri
                   )}
                 </td>
                 <td className="px-2 py-1.5 text-right">
+                  <button type="button" className={`${btn} mb-1`} onClick={() => setPreviewId(previewId === c.id ? null : c.id)}>
+                    {previewId === c.id ? "Hide preview" : "Preview"}
+                  </button>
                   {c.mode === "LIVE" ? (
                     <button type="button" className={btn} onClick={() => void setMode(c, false)}>Back to dry run</button>
                   ) : (
@@ -277,6 +282,8 @@ export function LivePanel({ accountId, campaigns, onChanged }: { accountId: stri
           </tbody>
         </table>
       </div>
+
+      {previewId && <PreviewPanel key={previewId} campaignId={previewId} onClose={() => setPreviewId(null)} />}
 
       <div>
         <h3 className="mb-1 text-xs font-semibold text-foreground">Today</h3>

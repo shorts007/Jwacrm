@@ -19,7 +19,7 @@ export async function POST() {
     }
     await supabaseAdmin()
       .from('evolution_config')
-      .update({ state: 'close', qr_code: null, is_default_outbound: false, updated_at: new Date().toISOString() })
+      .update({ state: 'close', qr_code: null, is_default_outbound: false, updated_by: ctx.userId, updated_at: new Date().toISOString() })
       .eq('account_id', ctx.accountId);
     await logEvolutionEvent(ctx.accountId, 'logout', 'ok');
     return NextResponse.json({ ok: true });

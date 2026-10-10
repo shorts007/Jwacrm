@@ -172,6 +172,12 @@ export default function EngagementPage() {
           Channels
         </Link>
         <Link
+          href="/engagement/audit"
+          className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted"
+        >
+          Audit log
+        </Link>
+        <Link
           href="/engagement/glossary"
           className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-muted"
         >

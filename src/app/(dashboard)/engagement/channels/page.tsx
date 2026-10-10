@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, CheckCircle2, Loader2, LogOut, PlugZap, RefreshCw, Send, Smartphone } from "lucide-react";
+import { SafetyPanel } from "./safety-panel";
 
 interface Status {
   configured: boolean;
@@ -286,6 +287,8 @@ export default function ChannelsPage() {
           </div>
         )}
       </section>
+
+      {st?.configured && <SafetyPanel />}
 
       {st?.configured && (
         <section className="space-y-2 rounded-xl border border-border bg-card p-4">

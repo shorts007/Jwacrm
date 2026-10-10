@@ -24,9 +24,9 @@ import {
   loadApprovedTemplates,
   loadLiveCampaigns,
   loadPolicyAndSettings,
+  loadSendHistory,
   promoBlockReason,
 } from '@/lib/lulu/server';
-import type { PastSend } from '@/lib/lulu/types';
 
 export const maxDuration = 60;
 const DAY = 86_400_000;
@@ -74,42 +74,18 @@ export async function POST(request: Request) {
     const { policy, settings } = await loadPolicyAndSettings(db, accountId);
     const dayStart = riyadhDayStart(now).toISOString();
 
-    const [today, recent, allCampaigns, stops, rows] = await Promise.all([
+    const [today, sendHistory, rows] = await Promise.all([
       db.from('lulu_customer_next_actions').select('customer_id, status')
         .eq('account_id', accountId).eq('is_test', false).gte('created_at', dayStart).range(0, 9999),
-      db.from('lulu_customer_next_actions').select('customer_id, campaign_id, sent_at, status, created_at')
-        .eq('account_id', accountId).eq('is_test', false)
-        .or('status.eq.SENT,skip_reason.eq.holdout')
-        .gte('created_at', new Date(now.getTime() - 60 * DAY).toISOString()).range(0, 49999),
-      db.from('lulu_campaigns').select('id, campaign_code').eq('account_id', accountId),
-      db.from('lulu_opt_outs').select('phone_digits').eq('account_id', accountId).range(0, 99999),
+      loadSendHistory(db, accountId, now, policy),
       loadActiveProfiles(db, accountId),
     ]);
-    for (const r of [today, recent, allCampaigns, stops]) if (r.error) throw r.error;
+    if (today.error) throw today.error;
 
     const used = (today.data ?? []).filter((a) => ['SCHEDULED', 'SENDING', 'SENT'].includes(a.status as string)).length;
     const remainingCap = settings.dailyCap - used;
     if (remainingCap <= 0) return ok({ queued: 0, blocked: [`Daily cap of ${settings.dailyCap} already used today.`] });
-
-    const codeById = new Map((allCampaigns.data ?? []).map((c) => [c.id as string, c.campaign_code as string]));
-    const history = new Map<string, PastSend[]>();
-    const receivedCodes = new Map<string, Set<string>>();
-    const windowStart = now.getTime() - Math.max(policy.promoWindowDays, policy.marketingWindowDays) * DAY;
-    for (const a of recent.data ?? []) {
-      const cid = a.customer_id as string;
-      // Holdout customers count as "received" so they stay out of the campaign (clean control group),
-      // but they do not count towards frequency caps — they were never messaged.
-      const sentAt = new Date((a.sent_at ?? a.created_at) as string);
-      if (a.status === 'SENT' && sentAt.getTime() >= windowStart) {
-        if (!history.has(cid)) history.set(cid, []);
-        history.get(cid)!.push({ sentAt, isPromo: true });
-      }
-      const code = codeById.get(a.campaign_id as string);
-      if (code) {
-        if (!receivedCodes.has(cid)) receivedCodes.set(cid, new Set());
-        receivedCodes.get(cid)!.add(code);
-      }
-    }
+    const { history, receivedCodes, stopDigits } = sendHistory;
 
     const plan = planSends({
       rows,
@@ -120,7 +96,7 @@ export async function POST(request: Request) {
       remainingCap: remainingCap * 2 + 20,
       history,
       receivedCodes,
-      stopDigits: new Set((stops.data ?? []).map((s) => s.phone_digits as string)),
+      stopDigits,
       alreadyQueuedToday: new Set((today.data ?? []).map((a) => a.customer_id as string)),
     });
 
