@@ -95,6 +95,8 @@ export interface SendMessageParams {
    * number (replies). 'default' → the account's default sender (campaigns / outreach).
    */
   channel?: ChannelRequest | null;
+  /** Test send to internal numbers — not counted against the app number's daily limit. */
+  testSend?: boolean;
 }
 
 export interface SendMessageResult {
@@ -211,6 +213,7 @@ export async function sendMessageToConversation(
     interactivePayload,
     replyToMessageId,
     channel: requestedChannel,
+    testSend,
   } = params;
 
   if (!conversationId) {
@@ -273,6 +276,7 @@ export async function sendMessageToConversation(
       conversationChannel: conversation.channel ?? null,
       channel: requestedChannel ?? null,
       healLegacyToken: true,
+      testSend: !!testSend,
     });
   } catch (err) {
     if (err instanceof ChannelError) {

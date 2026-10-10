@@ -220,6 +220,7 @@ export async function POST(request: Request) {
           templateMessageParams: isPromo ? { body: params, headerMediaUrl: campaign.promo_image_url! } : undefined,
           // Outreach → the account's default sender (Meta or the WhatsApp app number).
           channel: 'default',
+          testSend: true,
         });
         await admin.from('lulu_customer_next_actions').insert({
           ...row,

@@ -18,7 +18,13 @@ export async function POST(request: Request) {
     }
     const { error } = await supabaseAdmin()
       .from('evolution_config')
-      .update({ is_default_outbound: body.on, updated_at: new Date().toISOString() })
+      .update({
+        is_default_outbound: body.on,
+        updated_by: ctx.userId,
+        updated_at: new Date().toISOString(),
+        // The warm-up ramp starts the first time the number becomes the default sender.
+        ...(body.on && !row.warmup_started_at ? { warmup_started_at: new Date().toISOString() } : {}),
+      })
       .eq('account_id', ctx.accountId);
     if (error) throw error;
     await logEvolutionEvent(ctx.accountId, 'default_sender', body.on ? 'on' : 'off');

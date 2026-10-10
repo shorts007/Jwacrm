@@ -21,12 +21,15 @@ export interface EvolutionConfigRow {
   last_event_at: string | null;
   is_default_outbound: boolean;
   created_by?: string | null;
+  warmup_started_at?: string | null;
 }
 
 /** Friendly message for setup problems that would otherwise surface as "Internal server error". */
 export function evolutionSetupError(err: unknown): string | null {
   const e = err as { message?: string; code?: string } | null;
   const msg = String(e?.message ?? err ?? "");
+  if (/column/i.test(msg) && /evolution_config|evolution_send_log|lulu_audit_log/.test(msg))
+    return "The database is missing the newest columns — run migration 063_app_number_safety_and_audit.sql in Supabase (SQL Editor), then try again.";
   if (e?.code === "42P01" || e?.code === "PGRST205" || /evolution_(config|event_log)|schema cache|does not exist/i.test(msg))
     return "The Evolution tables are missing — run migration 061_evolution_channel.sql in Supabase (SQL Editor), then try again.";
   if (/ENCRYPTION_KEY|Invalid key length/i.test(msg)) return "ENCRYPTION_KEY is not set correctly in Vercel environment variables.";

@@ -142,6 +142,6 @@ export function isPauseWorthyError(message: string): boolean {
     /\b(131048|131056|80007|130429|368|131031)\b/.test(message) ||
     /rate limit|temporarily blocked|account (?:has been )?locked/i.test(message) ||
     // WhatsApp app number (Evolution): unlinked / logged out / server unreachable / bad key.
-    /WhatsApp app number is (?:disconnected|not set up)|Connection Closed|not connected|Cannot reach Evolution|→ 401/i.test(message)
+    /WhatsApp app number is (?:disconnected|not set up)|paused for safety|Connection Closed|not connected|Cannot reach Evolution|→ 401/i.test(message)
   );
 }

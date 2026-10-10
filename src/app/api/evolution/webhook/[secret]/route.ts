@@ -12,6 +12,8 @@ import { NextResponse, after } from 'next/server';
 import { supabaseAdmin } from '@/lib/automations/admin-client';
 import { jidDigits } from '@/lib/evolution/client';
 import { receiveUpdates, receiveUpsert, resolveOwnerUserId } from '@/lib/evolution/receive';
+import { connectionTroubleReason } from '@/lib/evolution/safety';
+import { pauseAppNumber } from '@/lib/evolution/safety-server';
 import { connFromRow, logEvolutionEvent, type EvolutionConfigRow } from '@/lib/evolution/server';
 
 export const maxDuration = 60;
@@ -65,6 +67,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ sec
         })
         .eq('account_id', accountId);
       await logEvolutionEvent(accountId, event, state, body.data);
+      // Logged out / refused by WhatsApp → stop campaigns through this number at once.
+      const trouble = state === 'close' ? connectionTroubleReason(d.statusReason) : null;
+      if (trouble) await pauseAppNumber(accountId, trouble);
     } else if (event === 'qrcode.updated') {
       const q = (body.data?.qrcode ?? body.data) as Record<string, unknown> | undefined;
       const qr = typeof q?.base64 === 'string' ? q.base64 : null;

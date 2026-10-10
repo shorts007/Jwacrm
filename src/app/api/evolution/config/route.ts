@@ -62,6 +62,7 @@ export async function POST(request: Request) {
       ...(existing ? {} : { webhook_secret: newWebhookSecret(), created_by: ctx.userId }),
       // instance changed → forget the old connection details
       ...(existing && existing.instance_name !== instance ? { state: 'unknown', connected_number: null, profile_name: null, qr_code: null } : {}),
+      updated_by: ctx.userId,
       updated_at: new Date().toISOString(),
     };
     const { error } = existing
@@ -69,7 +70,7 @@ export async function POST(request: Request) {
       : await db.from('evolution_config').insert(row);
     if (error) {
       return NextResponse.json(
-        { error: /evolution_config/.test(error.message) ? 'Run migration 061 in Supabase first.' : error.message },
+        { error: evolutionSetupError(error) ?? error.message },
         { status: 500 }
       );
     }

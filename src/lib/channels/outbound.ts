@@ -32,18 +32,26 @@ import type { MessageTemplate } from "@/types";
 import type { SendTimeParams } from "@/lib/whatsapp/template-send-builder";
 import * as evo from "@/lib/evolution/client";
 import { renderInteractive, renderTemplate } from "@/lib/evolution/render";
+import type { GateCode } from "@/lib/evolution/safety";
+import { checkHealth, outreachGate, recordOutreach } from "@/lib/evolution/safety-server";
 
 export type Channel = "meta" | "evolution";
 export type ChannelRequest = Channel | "default";
 
 export type Transport =
   | { channel: "meta"; phoneNumberId: string; accessToken: string }
-  | { channel: "evolution"; conn: evo.EvolutionConn; /** business-initiated: add a human-like typing pause */ outreach: boolean };
+  | {
+      channel: "evolution";
+      conn: evo.EvolutionConn;
+      /** Business-initiated (campaign / broadcast / test): safety limits + human-like typing pause apply. */
+      outreach: boolean;
+      accountId: string;
+    };
 
 export class ChannelError extends Error {
   constructor(
     message: string,
-    public code: "not_configured" | "disconnected" | "unsupported",
+    public code: "not_configured" | "disconnected" | "unsupported" | GateCode,
   ) {
     super(message);
     this.name = "ChannelError";
@@ -109,6 +117,8 @@ type ResolveOpts = {
   channel?: ChannelRequest | null;
   /** Re-encrypt a legacy CBC Meta token (the inbox send path has always done this). */
   healLegacyToken?: boolean;
+  /** A test to internal numbers: uses the default sender but is not counted or limited as outreach. */
+  testSend?: boolean;
 };
 
 async function decide(accountId: string, opts: ResolveOpts): Promise<{ channel: Channel; evoRow: EvoRow | null }> {
@@ -145,7 +155,7 @@ export async function resolveTransport(db: SupabaseClient, accountId: string, op
       }
       await supabaseAdmin().from("evolution_config").update({ state: "open" }).eq("account_id", accountId);
     }
-    return { channel: "evolution", conn, outreach: opts.channel === "default" };
+    return { channel: "evolution", conn, outreach: opts.channel === "default" && !opts.testSend, accountId };
   }
 
   const { data: config, error } = await db.from("whatsapp_config").select("id, phone_number_id, access_token").eq("account_id", accountId).single();
@@ -207,10 +217,32 @@ function needPhone(t: Transport, to: string): string {
 
 const evoId = (id: string | null) => id ?? `evo-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
+/**
+ * Every Evolution send goes through here. Business-initiated sends (outreach) are checked against
+ * the app-number safety rules first (paused / sending hours / today's limit), logged, and a
+ * failure triggers a health check that can pause sending automatically. Replies are not limited.
+ */
+async function viaEvolution(t: Extract<Transport, { channel: "evolution" }>, to: string, send: () => Promise<{ id: string | null }>): Promise<{ messageId: string }> {
+  if (!t.outreach) return { messageId: evoId((await send()).id) };
+  const blocked = await outreachGate(t.accountId);
+  if (blocked) throw new ChannelError(blocked.message, blocked.code);
+  try {
+    const r = await send();
+    const messageId = evoId(r.id);
+    await recordOutreach(t.accountId, { ok: true, messageId, recipient: to });
+    return { messageId };
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e);
+    await recordOutreach(t.accountId, { ok: false, recipient: to, error });
+    await checkHealth(t.accountId).catch(() => undefined);
+    throw e;
+  }
+}
+
 export async function sendTextVia(t: Transport, a: { to: string; text: string; contextMessageId?: string }): Promise<{ messageId: string }> {
   if (t.channel === "meta") return sendTextMessage({ phoneNumberId: t.phoneNumberId, accessToken: t.accessToken, ...a });
-  const r = await evo.sendText(t.conn, needPhone(t, a.to), a.text, { delayMs: humanPause(t) });
-  return { messageId: evoId(r.id) };
+  const to = needPhone(t, a.to);
+  return viaEvolution(t, to, () => evo.sendText(t.conn, to, a.text, { delayMs: humanPause(t) }));
 }
 
 export async function sendMediaVia(
@@ -219,9 +251,9 @@ export async function sendMediaVia(
 ): Promise<{ messageId: string }> {
   if (t.channel === "meta") return sendMediaMessage({ phoneNumberId: t.phoneNumberId, accessToken: t.accessToken, ...a });
   const to = needPhone(t, a.to);
-  if (a.kind === "audio") return { messageId: evoId((await evo.sendAudio(t.conn, to, a.link)).id) };
-  const r = await evo.sendMedia(t.conn, to, { kind: a.kind, url: a.link, caption: a.caption, fileName: a.filename, delayMs: humanPause(t) });
-  return { messageId: evoId(r.id) };
+  if (a.kind === "audio") return viaEvolution(t, to, () => evo.sendAudio(t.conn, to, a.link));
+  const kind = a.kind;
+  return viaEvolution(t, to, () => evo.sendMedia(t.conn, to, { kind, url: a.link, caption: a.caption, fileName: a.filename, delayMs: humanPause(t) }));
 }
 
 export async function sendTemplateVia(
@@ -256,12 +288,11 @@ export async function sendTemplateVia(
   } catch (e) {
     throw new ChannelError(e instanceof Error ? e.message : String(e), "unsupported");
   }
-  if (rendered.media) {
-    const r = await evo.sendMedia(t.conn, to, { kind: rendered.media.kind, url: rendered.media.url, caption: rendered.text, delayMs: humanPause(t) });
-    return { messageId: evoId(r.id) };
+  const { media, text } = rendered;
+  if (media) {
+    return viaEvolution(t, to, () => evo.sendMedia(t.conn, to, { kind: media.kind, url: media.url, caption: text, delayMs: humanPause(t) }));
   }
-  const r = await evo.sendText(t.conn, to, rendered.text, { delayMs: humanPause(t) });
-  return { messageId: evoId(r.id) };
+  return viaEvolution(t, to, () => evo.sendText(t.conn, to, text, { delayMs: humanPause(t) }));
 }
 
 export async function sendButtonsVia(
@@ -270,8 +301,8 @@ export async function sendButtonsVia(
 ): Promise<{ messageId: string }> {
   if (t.channel === "meta") return sendInteractiveButtons({ phoneNumberId: t.phoneNumberId, accessToken: t.accessToken, ...a });
   const text = renderInteractive({ kind: "buttons", body: a.bodyText, header: a.headerText, footer: a.footerText, buttons: a.buttons });
-  const r = await evo.sendText(t.conn, needPhone(t, a.to), text, { delayMs: humanPause(t) });
-  return { messageId: evoId(r.id) };
+  const to = needPhone(t, a.to);
+  return viaEvolution(t, to, () => evo.sendText(t.conn, to, text, { delayMs: humanPause(t) }));
 }
 
 export async function sendListVia(
@@ -280,8 +311,8 @@ export async function sendListVia(
 ): Promise<{ messageId: string }> {
   if (t.channel === "meta") return sendInteractiveList({ phoneNumberId: t.phoneNumberId, accessToken: t.accessToken, ...a });
   const text = renderInteractive({ kind: "list", body: a.bodyText, header: a.headerText, footer: a.footerText, button_label: a.buttonLabel, sections: a.sections });
-  const r = await evo.sendText(t.conn, needPhone(t, a.to), text, { delayMs: humanPause(t) });
-  return { messageId: evoId(r.id) };
+  const to = needPhone(t, a.to);
+  return viaEvolution(t, to, () => evo.sendText(t.conn, to, text, { delayMs: humanPause(t) }));
 }
 
 /** React to a message. `targetFromMe` = the target is one of ours (agent/bot), not the customer's. */

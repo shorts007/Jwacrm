@@ -43,8 +43,8 @@ export async function resolveOwnerUserId(accountId: string, createdBy: string | 
   const db = supabaseAdmin();
   const { data: wa } = await db.from("whatsapp_config").select("user_id").eq("account_id", accountId).maybeSingle();
   if (wa?.user_id) return wa.user_id as string;
-  const { data: p } = await db.from("profiles").select("id").eq("account_id", accountId).order("created_at", { ascending: true }).limit(1);
-  return (p?.[0]?.id as string | undefined) ?? null;
+  const { data: p } = await db.from("profiles").select("user_id").eq("account_id", accountId).order("created_at", { ascending: true }).limit(1);
+  return (p?.[0]?.user_id as string | undefined) ?? null;
 }
 
 const META_TYPE: Record<NormalizedMessage["type"], string> = {

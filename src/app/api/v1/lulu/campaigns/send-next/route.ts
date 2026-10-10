@@ -39,6 +39,8 @@ import {
 import type { PastSend } from '@/lib/lulu/types';
 import { resolveConversationByPhone } from '@/lib/whatsapp/resolve-conversation';
 import { sendMessageToConversation } from '@/lib/whatsapp/send-message';
+import { channelFor } from '@/lib/channels/outbound';
+import { checkHealth, outreachGate } from '@/lib/evolution/safety-server';
 
 export const maxDuration = 60;
 const DAY = 86_400_000;
@@ -62,6 +64,20 @@ export async function POST(request: Request) {
     }
     const gates = await liveGates(db, accountId, now);
     if (gates.length) return ok({ sent: 0, done: true, remaining: await remainingCount(), reason: gates.join(' ') });
+
+    // WhatsApp app number (Evolution) safety: paused / sending hours / warm-up limit / health.
+    if ((await channelFor(accountId, { channel: 'default' })) === 'evolution') {
+      const health = await checkHealth(accountId, now);
+      const gate = await outreachGate(accountId, now);
+      if (gate || health.pause) {
+        if (gate?.code === 'daily_limit') {
+          await db.from('lulu_customer_next_actions')
+            .update({ status: 'CANCELLED', skip_reason: 'app_number_daily_limit' })
+            .eq('account_id', accountId).eq('is_test', false).eq('status', 'SCHEDULED').gte('created_at', dayStart);
+        }
+        return ok({ sent: 0, done: true, paused: gate?.code === 'paused' || !!health.pause, remaining: await remainingCount(), reason: gate?.message ?? `auto-paused: ${health.pause}` });
+      }
+    }
 
     // Daily cap + server-side spacing.
     const { data: sentRows } = await db
