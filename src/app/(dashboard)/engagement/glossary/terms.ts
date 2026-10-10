@@ -463,4 +463,58 @@ export const GLOSSARY: TermSection[] = [
       { term: "Department code", meaning: "The first 3 digits of the product category code (e.g. 006). Names need a code list." },
     ],
   },
+  {
+    id: "channels",
+    title: "WhatsApp numbers & safety",
+    terms: [
+      {
+        term: "WhatsApp app number",
+        aka: ["Evolution", "Evolution API", "App number"],
+        meaning:
+          "A WhatsApp Business app number linked to WACRM by scanning a QR code (through your Evolution API server). No Meta fees and no 24-hour window, but WhatsApp can ban it for bulk or reported sending.",
+      },
+      {
+        term: "Meta number",
+        aka: ["Meta Cloud API", "Test number"],
+        meaning: "The official WhatsApp Business Platform number. Used for template approval; sends approved templates with real buttons.",
+      },
+      {
+        term: "Send through this number",
+        aka: ["Default sender"],
+        meaning:
+          "Switch on Engagement → Channels. On = campaigns, broadcasts and new conversations go out from the WhatsApp app number. Replies always use the number the customer wrote to.",
+      },
+      {
+        term: "Numbered options",
+        meaning: "The app number cannot show buttons, so they become a numbered list. The customer answers with the number (1, ١, 1️⃣) or the words and WACRM treats it like a button tap.",
+        example: "1️⃣ English  2️⃣ العربية → customer replies “2” → language set to Arabic.",
+      },
+      {
+        term: "Warm-up",
+        meaning: "A new app number may send only a few campaign messages a day at first: 20 (days 1–3), 40 (4–7), 70 (8–14), 100 (15–21), then the max per day.",
+        example: "Day 5 of warm-up → at most 40 campaign messages today, even if the daily cap is 100.",
+      },
+      {
+        term: "Sending hours",
+        meaning: "Hours (Riyadh) when the app number may send campaigns and broadcasts. Default 10:00–21:00. Replies are always allowed.",
+      },
+      {
+        term: "Auto-pause (number safety)",
+        meaning:
+          "Campaign sending through the app number stops by itself when: 4 of the last sends failed (numbers not on WhatsApp don't count), too many STOP replies today (5% with 20+ sent, or 10), or WhatsApp logged the number out or refused it. Resume on the Channels page.",
+      },
+      {
+        term: "Still one tick",
+        meaning: "Messages sent 2+ hours ago that never got a delivered tick. Many of them can mean recipients blocked the number or WhatsApp is limiting it — a warning, not a pause.",
+      },
+      {
+        term: "Preview",
+        meaning: "Campaigns → Step 3 → Preview: who the campaign would reach if it went live now, who is left out and why, how many days it takes at the daily limit, and the exact messages for a few real customers. Sends nothing.",
+      },
+      {
+        term: "Audit log",
+        meaning: "Engagement → Audit log: every change to campaigns, offers, contact rules, the app number and templates — who, what (old → new) and when. “system” = automatic changes.",
+      },
+    ],
+  },
 ];

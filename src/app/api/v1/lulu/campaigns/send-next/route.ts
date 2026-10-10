@@ -18,9 +18,8 @@ import { requireApiKey } from '@/lib/auth/api-context';
 import { ok, toApiErrorResponse } from '@/lib/api/v1/respond';
 import { isQuietNow } from '@/lib/lulu/contact-policy';
 import { profileFromRow, type DryRunProfileRow } from '@/lib/lulu/dry-run';
-import { buildParamsForKind } from '@/lib/lulu/messages';
-import { dueItems } from '@/lib/lulu/lifecycle';
-import { campaignNeedsOffer, customerOfferReason, offerBlockReason, offerExpiry, offerText, type Offer } from '@/lib/lulu/offers';
+import { campaignParams, missingProducts } from '@/lib/lulu/compose';
+import { campaignNeedsOffer, customerOfferReason, offerBlockReason, type Offer } from '@/lib/lulu/offers';
 import { decideNextBestAction } from '@/lib/lulu/next-best-action';
 import { gapBeforeNext, isPauseWorthyError, riyadhDayStart } from '@/lib/lulu/sender';
 import {
@@ -187,29 +186,9 @@ export async function POST(request: Request) {
     }
     const template = choice.template;
     const isPromo = campaign.type === 'NEW_OFFER';
-    const expiryDate = isPromo
-      ? campaign.promoValidUntil!
-      : offer
-        ? offerExpiry(offer, now)
-        : new Date(now.getTime() + 7 * DAY).toISOString().slice(0, 10);
     // No language chosen yet → bilingual template (AR block + EN block, with العربية / English buttons).
-    const wanted = buildParamsForKind(choice.kind, campaign.type, {
-      name: profile.name,
-      expiryDate,
-      offer: offer ? { ar: offerText(offer, 'ar'), en: offerText(offer, 'en') } : null,
-      promo: isPromo ? { ar: campaign.promoTextAr ?? '', en: campaign.promoTextEn ?? '' } : null,
-      // V2: the customer's own products — due items for Replenishment, most-bought for Buy Again.
-      items:
-        campaign.type === 'REPLENISHMENT'
-          ? dueItems(profile.usualItems, now, campaign.params.dueRatio, campaign.params.overdueRatio).slice(0, campaign.params.maxItems ?? 3).map((i) => i.name)
-          : campaign.type === 'BUY_AGAIN'
-            ? (profile.usualItems ?? []).slice(0, campaign.params.maxItems ?? 3).map((i) => i.name)
-            : campaign.type === 'CROSS_SELL' && profile.crossSell
-              ? [profile.crossSell.anchor]
-              : null,
-      product: campaign.type === 'CROSS_SELL' ? (profile.crossSell?.product ?? null) : null,
-    });
-    if ((campaign.type === 'REPLENISHMENT' || campaign.type === 'BUY_AGAIN' || campaign.type === 'CROSS_SELL') && !wanted[1])
+    const wanted = campaignParams(choice.kind, campaign, profile, offer, now);
+    if (missingProducts(campaign.type, wanted))
       return skip('no products to name');
     if (template.varCount > wanted.length) {
       await finish('FAILED', { last_error: `template ${template.name} needs ${template.varCount} variables` });

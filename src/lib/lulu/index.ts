@@ -14,3 +14,5 @@ export * from "./sender";
 export * from "./attribution";
 export * from "./offers";
 export * from "./customer360";
+export * from "./compose";
+export * from "./preview";

@@ -37,17 +37,25 @@ auto-pause — they never silently switch to the Meta number.
 
 Every event is listed (redacted) under Diagnostics on the Channels page.
 
-## Ban-risk controls
+## Number safety (src/lib/evolution/safety.ts, migration 063)
 
-* Campaign / broadcast messages show "typing…" for 1.5–4 s before sending.
-* Broadcasts through the app number wait 2–4 s between recipients; big sends belong in
-  Engagement → Campaigns (daily cap, 60 s+ gaps, quiet hours, opt-outs, frequency caps).
-* Warm up a new number: small daily caps for the first 1–2 weeks.
+Applies to business-initiated sends through the app number (campaigns, broadcasts) — never to
+replies, never to internal test sends.
+
+* **Warm-up**: 20 a day (days 1–3), 40 (4–7), 70 (8–14), 100 (15–21), then *Max per day*. Starts
+  when "Send through this number" is first turned on. Skip / restart on the Channels page.
+* **Sending hours** (Riyadh, default 10:00–21:00).
+* **Automatic pause** (sending + LIVE campaigns): 4 failures among the last sends (numbers not on
+  WhatsApp excluded); too many STOP replies today (≥5 % with 20+ sent, or 10); WhatsApp logs the
+  number out (401) or refuses it (403). Resume on the Channels page; paused campaigns are resumed
+  in Campaigns → Step 3.
+* **Warning**: many messages from 2+ hours ago still on one tick.
+* Typing pause of 1.5–4 s before each campaign message; 2–4 s between broadcast recipients.
 
 ## Setup
 
 1. Evolution v2 behind HTTPS (e.g. Cloudflare Tunnel `evo.example.com → localhost:8080`), port 8080 closed.
-2. Run migrations **061** and **062**.
+2. Run migrations **061**, **062** and **063**.
 3. Engagement → Channels: server address, a **new** instance name (e.g. `wacrm-lulu`), the server's
    `AUTHENTICATION_API_KEY` → Save → Connect → scan the QR in WhatsApp Business → Linked devices.
 4. Send a test. Turn on **Send through this number** when ready.
