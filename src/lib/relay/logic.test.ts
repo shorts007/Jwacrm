@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { forwardText, isOverdue, parseAgentMessage, pickAgent, splitCode, type RelayAgent } from "./logic";
+import { botHandles, forwardText, isOverdue, parseAgentMessage, pickAgent, splitCode, type RelayAgent } from "./logic";
 
 const agent = (id: string, over: Partial<RelayAgent> = {}): RelayAgent => ({ id, name: id, phoneDigits: "9665000000" + id.length, enabled: true, onDuty: true, ...over });
 
@@ -69,5 +69,22 @@ describe("isOverdue", () => {
     expect(isOverdue({ ...base, awaitingReply: false }, 10, now)).toBe(false);
     expect(isOverdue({ ...base, status: "closed" }, 10, now)).toBe(false);
     expect(isOverdue({ ...base, agentId: null, lastCustomerAt: mins(1) }, 10, now)).toBe(true);
+  });
+});
+
+describe("botHandles", () => {
+  const m = (text: string | null, extra: Partial<Parameters<typeof botHandles>[0]> = {}) =>
+    botHandles({ text, interactiveReplyId: null, hasMedia: false, isStopStartOrLanguage: false, ...extra });
+  it("keeps keywords, menu choices, greetings, thanks and emoji with the bot", () => {
+    expect(m("STOP", { isStopStartOrLanguage: true })).toBe("keyword");
+    expect(m("2", { interactiveReplyId: "العربية" })).toBe("menu_choice");
+    for (const t of ["Hi", "hello!", "السلام عليكم", "مرحبا", "شكراً", "Thank you", "ok", "👍", "🙏🙏"]) expect(m(t)).not.toBeNull();
+  });
+  it("sends real questions, media and anything unclear to an agent", () => {
+    expect(m("Where is my order?")).toBeNull();
+    expect(m("وين طلبي")).toBeNull();
+    expect(m("hi, my order is late")).toBeNull();
+    expect(m("3")).toBeNull(); // a number that did not match any option
+    expect(m(null, { hasMedia: true })).toBeNull();
   });
 });

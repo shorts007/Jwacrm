@@ -190,3 +190,59 @@ export function isOverdue(t: ThreadTiming, minutes: number, now: Date): boolean 
 
 /** Open chats with no customer or agent activity for this long are closed silently. */
 export const AUTO_CLOSE_HOURS = 24;
+
+// ------------------------------------------------------------------ what the bot handles
+
+const SMALL_TALK = new Set(
+  [
+    "hi", "hello", "hey", "hii", "helo", "salam", "salaam", "assalamualaikum", "assalam alaikum", "good morning", "good evening",
+    "ok", "okay", "k", "thanks", "thank you", "thank u", "thx", "ty", "noted", "fine", "great", "good", "nice", "sure", "yes", "no",
+    "السلام عليكم", "سلام عليكم", "السلام", "سلام", "مرحبا", "مرحبا بك", "اهلا", "اهلين", "هلا", "صباح الخير", "مساء الخير",
+    "شكرا", "شكرا لك", "شكرا جزيلا", "مشكور", "يعطيك العافيه", "تمام", "طيب", "اوكي", "اوك", "حسنا", "نعم", "لا", "جزاك الله خير",
+  ].map((t) =>
+    t
+      .normalize("NFKC")
+      .toLowerCase()
+      .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
+      .replace(/[إأآٱ]/g, "ا")
+      .replace(/ى/g, "ي")
+      .replace(/ة/g, "ه")
+      .trim(),
+  ),
+);
+
+/**
+ * Messages the automatic replies already handle, so no agent is needed:
+ *   - STOP / START and language choices (English / العربية) — LuLu opt-out & language handling;
+ *   - a tap or numbered answer to our buttons / options ("1", "2", "English") — Flows / campaigns;
+ *   - greetings, thanks, "ok", emoji-only and empty messages — the welcome / auto reply covers them.
+ * Everything else (a real question, a photo, a voice note, a location…) goes to an agent.
+ */
+export function botHandles(m: {
+  text: string | null;
+  /** Set when the message answered our buttons / numbered options. */
+  interactiveReplyId: string | null;
+  hasMedia: boolean;
+  isStopStartOrLanguage: boolean;
+}): string | null {
+  if (m.isStopStartOrLanguage) return "keyword";
+  if (m.interactiveReplyId) return "menu_choice";
+  if (m.hasMedia) return null;
+  const raw = (m.text ?? "").trim();
+  if (!raw) return "empty";
+  // Only emoji / punctuation / digits-free symbols
+  if (!/[\p{L}\p{N}]/u.test(raw)) return "emoji";
+  const t = raw
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\u064B-\u065F\u0670\u0640]/g, "")
+    .replace(/[إأآٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/[^\p{L}\p{N} ]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (t.length <= 30 && SMALL_TALK.has(t)) return "small_talk";
+  return null;
+}
+
