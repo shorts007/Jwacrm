@@ -18,6 +18,14 @@ customer ◄── shop number ◄── WACRM ◄── agent swipe-replies
    chat is assigned as soon as an agent goes on duty.
 5. Chats with no activity for 24 h close by themselves; the customer writing again reopens them.
 
+## What stays with the automatic replies (not sent to agents)
+* STOP / START and language choices (English / العربية) — handled by the opt-out & language replies.
+* Taps / numbered answers to our buttons and options ("1", "2", "English") — Flows and campaigns.
+* Greetings, thanks, "ok", emoji-only messages — covered by the welcome / auto reply. While an agent
+  is in the middle of answering this customer (replied within the last 2 hours) these still reach
+  the agent.
+Everything else — a real question, a photo, a voice note, a location — goes to an agent.
+
 ## What agents send
 | Message | Effect |
 |---|---|

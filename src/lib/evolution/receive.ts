@@ -30,6 +30,8 @@ import { getBase64FromMedia, type EvolutionConn } from "./client";
 import { interactiveReplyOptions, matchReplyOption, templateReplyOptions } from "./render";
 import { normalizeUpdates, normalizeUpsert, type NormalizedMessage } from "./normalize";
 import { findAgent, isAgentNumber, onAgentMessage, onCustomerMessage, sweep } from "@/lib/relay/server";
+import { botHandles } from "@/lib/relay/logic";
+import { classifyLanguage, classifyReply } from "@/lib/lulu/opt-out";
 
 export interface ReceiveContext {
   accountId: string;
@@ -171,6 +173,13 @@ async function receiveCustomerMessage(n: NormalizedMessage, ctx: ReceiveContext)
       text: s.parsed.contentText,
       mediaUrl: s.parsed.mediaUrl,
       mediaType: s.parsed.mediaType,
+      // STOP / START / language / menu answers / greetings are handled by the automatic replies.
+      botHandled: botHandles({
+        text: s.parsed.contentText,
+        interactiveReplyId: s.parsed.interactiveReplyId,
+        hasMedia: !!s.parsed.mediaUrl,
+        isStopStartOrLanguage: !!classifyReply(s.parsed.contentText) || !!classifyLanguage(s.parsed.contentText),
+      }),
     }).catch((e) => {
       console.warn("[relay] customer message not relayed:", e instanceof Error ? e.message : e);
       return false;

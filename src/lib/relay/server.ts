@@ -135,7 +135,16 @@ export interface CustomerMessage {
   text: string | null;
   mediaUrl: string | null;
   mediaType: string | null;
+  /**
+   * Why the automatic replies already cover this message (relay/logic botHandles), or null.
+   * 'keyword' / 'menu_choice' never go to an agent; small talk / emoji only reach the agent
+   * while they are in the middle of answering this customer.
+   */
+  botHandled?: string | null;
 }
+
+/** An agent answered this customer within this window → their "ok" / "thanks" still reaches the agent. */
+const ACTIVE_CHAT_MS = 2 * 3_600_000;
 
 interface ForwardItem {
   messageId: string;
@@ -238,6 +247,18 @@ export async function onCustomerMessage(m: CustomerMessage): Promise<boolean> {
   const conn = await evoConn(m.accountId);
   if (!conn) return false;
   const now = new Date().toISOString();
+
+  if (m.botHandled === "keyword" || m.botHandled === "menu_choice") return false;
+  if (m.botHandled) {
+    const { data: open } = await db()
+      .from("relay_threads")
+      .select("status, last_agent_reply_at")
+      .eq("conversation_id", m.conversationId)
+      .maybeSingle();
+    const activeChat =
+      open?.status === "open" && !!open.last_agent_reply_at && Date.now() - new Date(open.last_agent_reply_at as string).getTime() < ACTIVE_CHAT_MS;
+    if (!activeChat) return false;
+  }
 
   let { data: t } = await db().from("relay_threads").select("*").eq("conversation_id", m.conversationId).maybeSingle();
   let reopened = false;
