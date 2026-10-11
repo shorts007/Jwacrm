@@ -28,6 +28,7 @@ interface CampaignRow {
   template_name_bilingual: string | null;
   test_phones: string[] | null;
   offer_id: string | null;
+  shop_url?: string | null;
 }
 
 const fmt = (n: number) => n.toLocaleString("en-US");
@@ -57,7 +58,7 @@ export default function CampaignsPage() {
     setLoading(true);
     const { data, error: err } = await createClient()
       .from("lulu_campaigns")
-      .select("id, campaign_code, name, campaign_type, rule_params, status, mode, active, template_name_ar, template_name_en, template_name_bilingual, test_phones, offer_id")
+      .select("*")
       .eq("account_id", accountId)
       .order("priority");
     if (err) setError(err.message);

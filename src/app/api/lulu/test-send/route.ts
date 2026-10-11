@@ -23,6 +23,8 @@ import {
 } from '@/lib/whatsapp/send-message';
 import {
   DEFAULT_TEMPLATE_NAMES,
+  campaignShopUrl,
+  shopNowLabel,
   TEMPLATE_LANGUAGE,
   OFFER_COLUMNS,
   asMessageLanguage,
@@ -49,6 +51,7 @@ interface CampaignRow {
   promo_text_ar: string | null;
   promo_text_en: string | null;
   promo_valid_until: string | null;
+  shop_url?: string | null;
 }
 
 export async function POST(request: Request) {
@@ -69,7 +72,7 @@ export async function POST(request: Request) {
 
     const { data: campaign, error } = await ctx.supabase
       .from('lulu_campaigns')
-      .select('id, campaign_code, campaign_type, template_name_ar, template_name_en, template_name_bilingual, test_phones, offer_id, promo_image_url, promo_text_ar, promo_text_en, promo_valid_until')
+      .select('*')
       .eq('id', body.campaign_id)
       .eq('account_id', ctx.accountId)
       .maybeSingle<CampaignRow>();
@@ -181,6 +184,8 @@ export async function POST(request: Request) {
     const params = wantedParams.slice(0, varCount);
 
     const admin = supabaseAdmin();
+    const { data: policyRow } = await ctx.supabase.from('lulu_contact_policy').select('*').eq('account_id', ctx.accountId).maybeSingle();
+    const shopUrl = campaignShopUrl(campaign.shop_url, (policyRow as { default_shop_url?: string | null } | null)?.default_shop_url);
     const results: { phone: string; ok: boolean; error?: string; code?: string; channel?: string }[] = [];
     const { data: optRows } = await admin
       .from('lulu_opt_outs')
@@ -220,6 +225,7 @@ export async function POST(request: Request) {
           templateMessageParams: isPromo ? { body: params, headerMediaUrl: campaign.promo_image_url! } : undefined,
           // Outreach → the account's default sender (Meta or the WhatsApp app number).
           channel: 'default',
+          shopLink: shopUrl ? { label: shopNowLabel(bilingual ? 'bi' : template.language), url: shopUrl } : null,
           testSend: true,
         });
         await admin.from('lulu_customer_next_actions').insert({

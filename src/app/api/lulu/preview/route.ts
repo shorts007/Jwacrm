@@ -18,6 +18,8 @@ import {
   EXCLUSION_LABELS,
   campaignNeedsOffer,
   campaignParams,
+  campaignShopUrl,
+  shopNowLabel,
   customerOfferReason,
   maskPhone,
   missingProducts,
@@ -55,7 +57,8 @@ export async function POST(request: Request) {
     const campaign = await loadCampaign(db, accountId, body.campaign_id);
     if (!campaign) return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
 
-    const { policy, settings } = await loadPolicyAndSettings(db, accountId);
+    const { policy, settings, defaultShopUrl } = await loadPolicyAndSettings(db, accountId);
+    const shopUrl = campaignShopUrl(campaign.shopUrl, defaultShopUrl);
     const [live, sendHistory, rows, approved, channel] = await Promise.all([
       loadLiveCampaigns(db, accountId),
       loadSendHistory(db, accountId, now, policy),
@@ -144,6 +147,8 @@ export async function POST(request: Request) {
         const rendered = renderTemplate(
           templateRow(choice.template.name, choice.template.language),
           { body: params.slice(0, choice.template.varCount), ...(campaign.type === 'NEW_OFFER' && campaign.promoImageUrl ? { headerMediaUrl: campaign.promoImageUrl } : {}) },
+          undefined,
+          { link: shopUrl ? { label: shopNowLabel(choice.kind), url: shopUrl } : null },
         );
         return { ...base, template: `${choice.template.name} (${choice.template.language})`, text: rendered.text, image: rendered.media?.kind === 'image' ? rendered.media.url : null };
       } catch (e) {

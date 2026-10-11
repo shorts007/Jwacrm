@@ -19,6 +19,7 @@ import { ok, toApiErrorResponse } from '@/lib/api/v1/respond';
 import { isQuietNow } from '@/lib/lulu/contact-policy';
 import { profileFromRow, type DryRunProfileRow } from '@/lib/lulu/dry-run';
 import { campaignParams, missingProducts } from '@/lib/lulu/compose';
+import { campaignShopUrl, shopNowLabel } from '@/lib/lulu/messages';
 import { campaignNeedsOffer, customerOfferReason, offerBlockReason, type Offer } from '@/lib/lulu/offers';
 import { decideNextBestAction } from '@/lib/lulu/next-best-action';
 import { gapBeforeNext, isPauseWorthyError, riyadhDayStart } from '@/lib/lulu/sender';
@@ -52,7 +53,7 @@ export async function POST(request: Request) {
     const now = new Date();
     const dayStart = riyadhDayStart(now).toISOString();
 
-    const { policy, settings } = await loadPolicyAndSettings(db, accountId);
+    const { policy, settings, defaultShopUrl } = await loadPolicyAndSettings(db, accountId);
     const todayQ = () =>
       db.from('lulu_customer_next_actions').select('id', { count: 'exact', head: true })
         .eq('account_id', accountId).eq('is_test', false).gte('created_at', dayStart);
@@ -206,6 +207,10 @@ export async function POST(request: Request) {
         templateParams: params,
         // Promotions: this promotion's own image replaces the template's sample header image.
         templateMessageParams: isPromo ? { body: params, headerMediaUrl: campaign.promoImageUrl! } : undefined,
+        shopLink: (() => {
+          const url = campaignShopUrl(campaign.shopUrl, defaultShopUrl);
+          return url ? { label: shopNowLabel(choice.kind), url } : null;
+        })(),
         // Outreach → the account's default sender (Meta or the WhatsApp app number).
         channel: 'default',
       });

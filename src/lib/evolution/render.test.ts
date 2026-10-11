@@ -97,3 +97,15 @@ describe("matchReplyOption", () => {
     expect(normalizeDigits("١٢ 3️⃣ 🔟")).toBe("12 3 10");
   });
 });
+
+describe("Shop now link", () => {
+  const link = { label: "🛒 Shop now", url: "https://shop.example/offer" };
+  it("is added under the message, before the footer and options", () => {
+    const r = renderTemplate(tpl({ footer_text: "Reply STOP to opt out", buttons: [{ type: "QUICK_REPLY", text: "English" }] }), { body: ["Samia", "10%"] }, undefined, { link });
+    expect(r.text).toBe("Hi Samia, your 2nd order gets 10% off.\n\n🛒 Shop now: https://shop.example/offer\n\n_Reply STOP to opt out_\n\n1️⃣ English");
+  });
+  it("is not added twice when the template has its own link button", () => {
+    const r = renderTemplate(tpl({ buttons: [{ type: "URL", text: "Shop", url: "https://lulu.example/x" }] }), { body: ["A", "B"] }, undefined, { link });
+    expect(r.text).not.toContain("shop.example");
+  });
+});

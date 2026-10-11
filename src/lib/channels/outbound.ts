@@ -31,7 +31,7 @@ import {
 import type { MessageTemplate } from "@/types";
 import type { SendTimeParams } from "@/lib/whatsapp/template-send-builder";
 import * as evo from "@/lib/evolution/client";
-import { renderInteractive, renderTemplate } from "@/lib/evolution/render";
+import { renderInteractive, renderTemplate, type ShopLink } from "@/lib/evolution/render";
 import type { GateCode } from "@/lib/evolution/safety";
 import { checkHealth, outreachGate, recordOutreach } from "@/lib/evolution/safety-server";
 
@@ -266,6 +266,8 @@ export async function sendTemplateVia(
     messageParams?: SendTimeParams;
     params?: string[];
     contextMessageId?: string;
+    /** "Shop now" link added under the message on the app number (Meta: only via the template's own URL button). */
+    link?: ShopLink | null;
   },
 ): Promise<{ messageId: string }> {
   if (t.channel === "meta") {
@@ -284,7 +286,7 @@ export async function sendTemplateVia(
   const to = needPhone(t, a.to);
   let rendered;
   try {
-    rendered = renderTemplate(a.template, a.messageParams, a.params);
+    rendered = renderTemplate(a.template, a.messageParams, a.params, { link: a.link });
   } catch (e) {
     throw new ChannelError(e instanceof Error ? e.message : String(e), "unsupported");
   }

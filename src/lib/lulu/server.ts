@@ -55,10 +55,12 @@ export interface LiveCampaign extends CampaignConfig {
   promoTextAr: string | null;
   promoTextEn: string | null;
   promoValidUntil: string | null;
+  /** Campaign's own "Shop now" link (065). */
+  shopUrl: string | null;
 }
 
-const CAMPAIGN_COLUMNS =
-  "id, campaign_code, name, campaign_type, rule_params, offer_id, active, mode, status, priority, template_name_ar, template_name_en, template_name_bilingual, holdout_pct, attribution_days, promo_image_url, promo_text_ar, promo_text_en, promo_valid_until";
+// "*" so a column added by a later migration (e.g. shop_url, 065) never breaks live sending before it is run.
+const CAMPAIGN_COLUMNS = "*";
 
 export function liveCampaignFromRow(r: Record<string, unknown>): LiveCampaign {
   return {
@@ -72,6 +74,7 @@ export function liveCampaignFromRow(r: Record<string, unknown>): LiveCampaign {
     promoTextAr: (r.promo_text_ar as string | null) ?? null,
     promoTextEn: (r.promo_text_en as string | null) ?? null,
     promoValidUntil: (r.promo_valid_until as string | null) ?? null,
+    shopUrl: (r.shop_url as string | null) ?? null,
   };
 }
 
@@ -101,9 +104,9 @@ export async function loadCampaign(db: SupabaseClient, accountId: string, id: st
 export async function loadPolicyAndSettings(
   db: SupabaseClient,
   accountId: string,
-): Promise<{ policy: ContactPolicy; settings: SendSettings }> {
+): Promise<{ policy: ContactPolicy; settings: SendSettings; defaultShopUrl: string | null }> {
   const { data } = await db.from("lulu_contact_policy").select("*").eq("account_id", accountId).maybeSingle();
-  const row = data as (PolicyRow & { daily_send_cap?: number; send_gap_base_seconds?: number; send_gap_increment_seconds?: number }) | null;
+  const row = data as (PolicyRow & { daily_send_cap?: number; send_gap_base_seconds?: number; send_gap_increment_seconds?: number; default_shop_url?: string | null }) | null;
   return {
     policy: policyFromRow(row),
     settings: {
@@ -111,6 +114,7 @@ export async function loadPolicyAndSettings(
       gapBaseSeconds: row?.send_gap_base_seconds ?? DEFAULT_SEND_SETTINGS.gapBaseSeconds,
       gapIncrementSeconds: row?.send_gap_increment_seconds ?? DEFAULT_SEND_SETTINGS.gapIncrementSeconds,
     },
+    defaultShopUrl: row?.default_shop_url ?? null,
   };
 }
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { campaignShopUrl, shopNowLabel } from "./messages";
 import { asMessageLanguage, buildTemplateParams, cleanVariable, displayName, formatExpiry, pickTemplate } from "./index";
 
 describe("template params", () => {
@@ -37,5 +38,20 @@ describe("formatExpiry", () => {
     expect(formatExpiry("2026-10-12", "ar")).toMatch(/^12 .+ 2026$/);
     expect(formatExpiry("2026-10-12", "ar")).not.toMatch(/[٠-٩]/);
     expect(formatExpiry("garbage", "en")).toBe("garbage");
+  });
+});
+
+
+describe("shop now link", () => {
+  it("labels by message language", () => {
+    expect(shopNowLabel("ar")).toBe("🛒 تسوق الآن");
+    expect(shopNowLabel("en")).toBe("🛒 Shop now");
+    expect(shopNowLabel("bi")).toBe("🛒 تسوق الآن | Shop now");
+  });
+  it("prefers the campaign link, falls back to the default, ignores non-https", () => {
+    expect(campaignShopUrl("https://a.example/p", "https://b.example")).toBe("https://a.example/p");
+    expect(campaignShopUrl(null, " https://b.example ")).toBe("https://b.example");
+    expect(campaignShopUrl("http://insecure.example", null)).toBeNull();
+    expect(campaignShopUrl("", "")).toBeNull();
   });
 });
