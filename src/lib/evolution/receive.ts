@@ -29,6 +29,7 @@ import type { InteractiveMessagePayload } from "@/lib/whatsapp/interactive";
 import { getBase64FromMedia, type EvolutionConn } from "./client";
 import { interactiveReplyOptions, matchReplyOption, templateReplyOptions } from "./render";
 import { normalizeUpdates, normalizeUpsert, type NormalizedMessage } from "./normalize";
+import { findAgent, isAgentNumber, onAgentMessage, onCustomerMessage, sweep } from "@/lib/relay/server";
 
 export interface ReceiveContext {
   accountId: string;
@@ -141,6 +142,7 @@ async function receiveCustomerMessage(n: NormalizedMessage, ctx: ReceiveContext)
     ...(n.reaction ? { reaction: { message_id: n.reaction.targetId, emoji: n.reaction.emoji } } : {}),
     ...(n.quotedId ? { context: { id: n.quotedId } } : {}),
   };
+  let seen: { conversationId: string; contactId: string; parsed: ParsedInboundContent } | null = null;
   await processMessage(
     message,
     { profile: { name: n.pushName ?? undefined }, wa_id: phone },
@@ -148,14 +150,41 @@ async function receiveCustomerMessage(n: NormalizedMessage, ctx: ReceiveContext)
     ctx.ownerUserId,
     "",
     false,
-    { channel: "evolution", parseContent: ({ conversationId }) => contentFor(n, ctx, conversationId) },
+    {
+      channel: "evolution",
+      parseContent: async ({ conversationId, contactId }) => {
+        const parsed = await contentFor(n, ctx, conversationId);
+        seen = { conversationId, contactId, parsed };
+        return parsed;
+      },
+    },
   );
-  return n.type === "reaction" ? "reaction" : "received";
+  if (n.type === "reaction") return "reaction";
+  // Agent relay: copy the message to the agent handling this customer.
+  const s = seen as { conversationId: string; contactId: string; parsed: ParsedInboundContent } | null;
+  if (s) {
+    const relayed = await onCustomerMessage({
+      accountId: ctx.accountId,
+      conversationId: s.conversationId,
+      contactId: s.contactId,
+      messageId: n.id,
+      text: s.parsed.contentText,
+      mediaUrl: s.parsed.mediaUrl,
+      mediaType: s.parsed.mediaType,
+    }).catch((e) => {
+      console.warn("[relay] customer message not relayed:", e instanceof Error ? e.message : e);
+      return false;
+    });
+    if (relayed) return "received, relayed to agent";
+  }
+  return "received";
 }
 
 /** A message typed on the phone itself → stored as an agent message (no automations). */
 async function recordPhoneMessage(n: NormalizedMessage, ctx: ReceiveContext): Promise<string> {
   const db = supabaseAdmin();
+  // Messages the app number sent to staff (agent relay) are not customer conversations.
+  if (await isAgentNumber(ctx.accountId, n.phone!)) return "to_agent_ignored";
   // Our own API sends can echo back here; give the sender a moment to store its row first.
   await new Promise((r) => setTimeout(r, 4000));
   const { data: existing } = await db.from("messages").select("id").eq("message_id", n.id).limit(1);
@@ -221,8 +250,31 @@ export async function receiveUpsert(data: unknown, ctx: ReceiveContext): Promise
       outcomes.push("ignored: no phone number (LID only)");
       continue;
     }
+    if (!n.fromMe) {
+      // An agent writing to the app number → relay command / reply, never a customer chat.
+      const agent = await findAgent(ctx.accountId, n.phone);
+      if (agent) {
+        if (n.type === "reaction") {
+          outcomes.push("agent_reaction_ignored");
+          continue;
+        }
+        const parsed = await contentFor(n, ctx, null);
+        outcomes.push(
+          await onAgentMessage(ctx.accountId, agent, {
+            id: n.id,
+            text: parsed.contentText ?? n.text,
+            quotedId: n.quotedId,
+            mediaUrl: parsed.mediaUrl,
+            mediaType: parsed.mediaType,
+          }),
+        );
+        continue;
+      }
+    }
     outcomes.push(n.fromMe ? await recordPhoneMessage(n, ctx) : await receiveCustomerMessage(n, ctx));
   }
+  // Hand over chats that waited too long (throttled to once a minute).
+  await sweep(ctx.accountId).catch(() => undefined);
   return outcomes.join(", ") || "empty";
 }
 

@@ -508,6 +508,21 @@ export const GLOSSARY: TermSection[] = [
         meaning: "Messages sent 2+ hours ago that never got a delivered tick. Many of them can mean recipients blocked the number or WhatsApp is limiting it — a warning, not a pause.",
       },
       {
+        term: "Agent relay",
+        aka: ["Agents on WhatsApp", "#482", "Chat number"],
+        meaning:
+          "Customer messages to the shop number are copied to the assigned agent's own WhatsApp with a chat number (#482). The agent swipe-replies and the answer reaches the customer from the shop number. Engagement → Agents.",
+        example: "Ahmed asks “where is my order?” → Sara gets “🟢 #482 · Ahmed …” → she swipe-replies “On the way, 20 min” → Ahmed receives it from the shop number.",
+      },
+      {
+        term: "Hand-over",
+        meaning: "When the agent does not reply within the set minutes (default 10), the chat moves to another on-duty agent with the unanswered messages.",
+      },
+      {
+        term: "On duty",
+        meaning: "Agents who receive new chats. Switch on the Agents page, or the agent sends /on or /off on WhatsApp.",
+      },
+      {
         term: "Preview",
         meaning: "Campaigns → Step 3 → Preview: who the campaign would reach if it went live now, who is left out and why, how many days it takes at the daily limit, and the exact messages for a few real customers. Sends nothing.",
       },

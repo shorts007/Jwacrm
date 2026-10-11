@@ -1,0 +1,86 @@
+{
+  "name": "WACRM agent relay — hand-over sweep",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Agent relay sweep\nEvery 2 minutes: hands chats to another on-duty agent when nobody replied in time (Engagement → Agents), assigns chats that arrived while nobody was on duty, reminds the agent when nobody else is free, closes chats idle for 24 h.\n\n**Setup**\n1. Supabase: migration 064.\n2. n8n: *Header Auth* credential `Authorization: Bearer <WACRM API key with messages:send>` on the HTTP node (same key as the daily sender is fine).\n3. Activate the workflow.\n\nThe app also runs the sweep on incoming WhatsApp traffic, but only this schedule guarantees a hand-over when the shop is quiet.",
+        "height": 300,
+        "width": 420
+      },
+      "name": "Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -460,
+        80
+      ],
+      "id": "relay-sweep-0"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 2
+            }
+          ]
+        }
+      },
+      "name": "Every 2 minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        200
+      ],
+      "id": "relay-sweep-1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://jwacrm.vercel.app/api/v1/relay/sweep",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({}) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "name": "Sweep",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        200
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "onError": "continueRegularOutput",
+      "id": "relay-sweep-2"
+    }
+  ],
+  "connections": {
+    "Every 2 minutes": {
+      "main": [
+        [
+          {
+            "node": "Sweep",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none"
+  },
+  "active": false,
+  "pinData": {}
+}
