@@ -161,3 +161,15 @@ export function buildParamsForKind(
     });
   return kind === "bi" ? [...one("ar"), ...one("en")] : one(kind);
 }
+
+/** "Shop now" label in the message's language (bilingual messages get both). */
+export function shopNowLabel(kind: TemplateChoiceKind): string {
+  return kind === "ar" ? "🛒 تسوق الآن" : kind === "en" ? "🛒 Shop now" : "🛒 تسوق الآن | Shop now";
+}
+
+/** The campaign's own link, else the account default; only https links are used. */
+export function campaignShopUrl(campaignUrl: string | null | undefined, defaultUrl: string | null | undefined): string | null {
+  const pick = (u: string | null | undefined) => (u && /^https:\/\/\S+$/i.test(u.trim()) ? u.trim() : null);
+  return pick(campaignUrl) ?? pick(defaultUrl);
+}
+

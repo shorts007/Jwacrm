@@ -66,7 +66,21 @@ export interface RenderedMessage {
  * A template as plain WhatsApp text. Throws when the template has no local copy (we would not
  * know what to send) — run "Sync from Meta" in Settings → Templates.
  */
-export function renderTemplate(template: MessageTemplate | null | undefined, params: SendTimeParams | undefined, legacyBody?: string[]): RenderedMessage {
+export interface ShopLink {
+  /** e.g. "🛒 Shop now" / "🛒 تسوق الآن" */
+  label: string;
+  url: string;
+}
+
+/** "🛒 Shop now: https://…" — added under the message when the template has no link button of its own. */
+export const shopLinkLine = (link: ShopLink | null | undefined) => (link?.url ? `${link.label}: ${link.url}` : null);
+
+export function renderTemplate(
+  template: MessageTemplate | null | undefined,
+  params: SendTimeParams | undefined,
+  legacyBody?: string[],
+  opts: { link?: ShopLink | null } = {},
+): RenderedMessage {
   if (!template?.body_text) {
     throw new Error("This template has no local copy to send through the WhatsApp app number — open Settings → Templates and sync from Meta.");
   }
@@ -97,7 +111,9 @@ export function renderTemplate(template: MessageTemplate | null | undefined, par
     }
   });
 
-  const text = join([bold(headerText), body, italic(template.footer_text), extra.join("\n"), optionLines(quick).join("\n")]);
+  const hasLinkButton = buttons.some((b) => b.type === "URL");
+  const link = hasLinkButton ? null : shopLinkLine(opts.link);
+  const text = join([bold(headerText), body, link, italic(template.footer_text), extra.join("\n"), optionLines(quick).join("\n")]);
   return { text, media };
 }
 

@@ -42,6 +42,8 @@ const time = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString([],
 
 export function LivePanel({ accountId, campaigns, onChanged }: { accountId: string; campaigns: LiveCampaignRow[]; onChanged: () => void }) {
   const [settings, setSettings] = useState<SendSettings>(DEFAULT_SEND_SETTINGS);
+  const [shopUrl, setShopUrl] = useState("");
+  const [shopMsg, setShopMsg] = useState<string | null>(null);
   const [actions, setActions] = useState<ActionRow[]>([]);
   const [delivery, setDelivery] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState<string | null>(null);
@@ -73,7 +75,8 @@ export function LivePanel({ accountId, campaigns, onChanged }: { accountId: stri
     ]);
     setOffers((offs ?? []) as { id: string; offer_code: string; name: string; active: boolean }[]);
     if (pol) {
-      const p = pol as { daily_send_cap?: number; send_gap_base_seconds?: number; send_gap_increment_seconds?: number };
+      const p = pol as { daily_send_cap?: number; send_gap_base_seconds?: number; send_gap_increment_seconds?: number; default_shop_url?: string | null };
+      setShopUrl(p.default_shop_url ?? "");
       setSettings({
         dailyCap: p.daily_send_cap ?? DEFAULT_SEND_SETTINGS.dailyCap,
         gapBaseSeconds: p.send_gap_base_seconds ?? DEFAULT_SEND_SETTINGS.gapBaseSeconds,
@@ -100,6 +103,15 @@ export function LivePanel({ accountId, campaigns, onChanged }: { accountId: stri
       cancelled = true;
     };
   }, [load]);
+
+  const saveShopUrl = async () => {
+    const url = shopUrl.trim();
+    if (url && !/^https:\/\/\S+$/i.test(url)) return setShopMsg("The link must start with https:// (WhatsApp only makes https links tappable).");
+    const { error } = await createClient()
+      .from("lulu_contact_policy")
+      .upsert({ account_id: accountId, default_shop_url: url || null }, { onConflict: "account_id" });
+    setShopMsg(error ? (/default_shop_url/.test(error.message) ? "Run migration 065 in Supabase first." : error.message) : url ? "Saved — every campaign message now ends with this Shop now link (unless the campaign has its own)." : "Removed.");
+  };
 
   const saveSettings = async () => {
     setBusy(true);
@@ -219,6 +231,15 @@ export function LivePanel({ accountId, campaigns, onChanged }: { accountId: stri
         </label>
         <button type="button" className={btn} disabled={busy} onClick={() => void saveSettings()}>Save pacing</button>
         {msg && <span className="text-foreground">{msg}</span>}
+      </div>
+
+      <div className="flex flex-wrap items-end gap-3 text-xs text-muted-foreground">
+        <label className="min-w-0 flex-1 space-y-1">
+          <div>🛒 Shop now link — added under every campaign message (a campaign or promotion can set its own in Step 2 / Promotions)</div>
+          <input dir="ltr" inputMode="url" className="w-full rounded-lg border border-border bg-background px-2 py-1 text-sm text-foreground" placeholder="https://…" value={shopUrl} onChange={(e) => setShopUrl(e.target.value)} />
+        </label>
+        <button type="button" className={btn} onClick={() => void saveShopUrl()}>Save link</button>
+        {shopMsg && <span className="w-full text-foreground">{shopMsg}</span>}
       </div>
 
       <div className="overflow-x-auto">

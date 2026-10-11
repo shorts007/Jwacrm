@@ -22,6 +22,7 @@ interface PromoRow {
   promo_text_en: string | null;
   promo_valid_until: string | null;
   rule_params: { audience?: PromoAudience } | null;
+  shop_url?: string | null;
 }
 
 interface Draft {
@@ -32,6 +33,7 @@ interface Draft {
   textEn: string;
   validUntil: string;
   audience: PromoAudience;
+  shopUrl: string;
 }
 
 const STAGES: { v: NonNullable<PromoAudience["stages"]>[number]; label: string }[] = [
@@ -44,7 +46,7 @@ const STAGES: { v: NonNullable<PromoAudience["stages"]>[number]; label: string }
 const BEHAVIOURS = ["Offer-driven", "Mixed", "Full-price", "Unknown"];
 const STORES = ["3805", "3806", "3808", "3809", "3810", "3814", "3818", "3821"];
 const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
-const blank = (): Draft => ({ id: null, name: "", image: null, textAr: "", textEn: "", validUntil: inDays(7), audience: {} });
+const blank = (): Draft => ({ id: null, name: "", image: null, textAr: "", textEn: "", validUntil: inDays(7), audience: {}, shopUrl: "" });
 
 export default function PromotionsPage() {
   const { accountId } = useAuth();
@@ -60,7 +62,7 @@ export default function PromotionsPage() {
     if (!accountId) return;
     const { data, error } = await createClient()
       .from("lulu_campaigns")
-      .select("id, campaign_code, name, mode, status, active, promo_image_url, promo_text_ar, promo_text_en, promo_valid_until, rule_params")
+      .select("*")
       .eq("account_id", accountId)
       .eq("campaign_type", "NEW_OFFER")
       .order("created_at", { ascending: false });
@@ -170,6 +172,7 @@ export default function PromotionsPage() {
     if (!draft.name.trim()) return setMsg("Give the promotion a name.");
     if (!draft.image) return setMsg("Add a product image.");
     if (!draft.textAr.trim() || !draft.textEn.trim()) return setMsg("Write the offer in Arabic and English.");
+    if (draft.shopUrl.trim() && !/^https:\/\/\S+$/i.test(draft.shopUrl.trim())) return setMsg("The Shop now link must start with https://");
     const names = DEFAULT_TEMPLATE_NAMES.NEW_OFFER!;
     const row = {
       account_id: accountId,
@@ -185,6 +188,8 @@ export default function PromotionsPage() {
       template_name_ar: names.ar,
       template_name_en: names.en,
       template_name_bilingual: names.bi,
+      // Only sent when set, so saving keeps working before migration 065.
+      ...(draft.shopUrl.trim() || draft.id ? { shop_url: draft.shopUrl.trim() || null } : {}),
     };
     const db = createClient();
     const { error } = draft.id
@@ -196,7 +201,7 @@ export default function PromotionsPage() {
           mode: "DRY_RUN",
           status: "DRAFT",
         });
-    setMsg(error ? error.message : "Saved. Test it from Campaigns → Step 2, then Make LIVE in Step 3.");
+    setMsg(error ? (/shop_url/.test(error.message) ? "Run migration 065 in Supabase first (Shop now links)." : error.message) : "Saved. Test it from Campaigns → Step 2, then Make LIVE in Step 3.");
     if (!error) {
       setDraft(null);
       await load();
@@ -286,6 +291,9 @@ export default function PromotionsPage() {
               <label className="space-y-1 text-xs text-muted-foreground">Offer text — English ({draft.textEn.length}/{PROMO_TEXT_MAX})
                 <textarea rows={3} maxLength={PROMO_TEXT_MAX} className={input} value={draft.textEn} onChange={(e) => setDraft({ ...draft, textEn: e.target.value })} placeholder="20% off all fresh fruit this week." />
               </label>
+              <label className="space-y-1 text-xs text-muted-foreground md:col-span-2">🛒 Shop now link — the product / offer page (empty = the default link from Campaigns → Step 3)
+                <input dir="ltr" inputMode="url" className={input} placeholder="https://…" value={draft.shopUrl} onChange={(e) => setDraft({ ...draft, shopUrl: e.target.value })} />
+              </label>
               <label className="space-y-1 text-xs text-muted-foreground">Valid until (last send day)
                 <input type="date" className={input} value={draft.validUntil} onChange={(e) => setDraft({ ...draft, validUntil: e.target.value })} />
               </label>
@@ -345,6 +353,11 @@ export default function PromotionsPage() {
               <div className="space-y-2 p-3">
                 <p dir="rtl">مرحباً أحمد، لدينا عرض خاص لك: {cleanVariable(draft.textAr) || "…"} العرض ساري حتى {formatExpiry(draft.validUntil, "ar")}. اطلب الآن!</p>
                 <p>Hi Ahmed, we have a special offer for you: {cleanVariable(draft.textEn) || "…"} Valid until {formatExpiry(draft.validUntil, "en")}. Order now!</p>
+                {draft.shopUrl.trim() && (
+                  <p className="break-all">
+                    🛒 تسوق الآن | Shop now: <span className="text-sky-700 underline dark:text-sky-300">{draft.shopUrl.trim()}</span>
+                  </p>
+                )}
                 <p className="text-xs opacity-60">Reply STOP to opt out | للإلغاء أرسل STOP</p>
               </div>
               <div className="grid grid-cols-2 border-t border-black/10 text-center text-xs text-sky-700 dark:text-sky-300">
@@ -372,7 +385,7 @@ export default function PromotionsPage() {
               <p className="text-xs text-muted-foreground">{p.promo_text_en}</p>
               <p className="text-xs text-muted-foreground">Valid until {p.promo_valid_until ?? "—"} · {p.campaign_code}</p>
               <button type="button" className="mt-1 rounded-lg border border-border px-2 py-1 text-xs hover:bg-muted"
-                onClick={() => { setEstimate(null); setDraft({ id: p.id, name: p.name, image: p.promo_image_url, textAr: p.promo_text_ar ?? "", textEn: p.promo_text_en ?? "", validUntil: p.promo_valid_until ?? inDays(7), audience: p.rule_params?.audience ?? {} }); }}>
+                onClick={() => { setEstimate(null); setDraft({ id: p.id, name: p.name, image: p.promo_image_url, textAr: p.promo_text_ar ?? "", textEn: p.promo_text_en ?? "", validUntil: p.promo_valid_until ?? inDays(7), audience: p.rule_params?.audience ?? {}, shopUrl: p.shop_url ?? "" }); }}>
                 Edit
               </button>
             </div>

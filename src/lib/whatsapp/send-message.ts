@@ -22,6 +22,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import type { MediaKind } from '@/lib/whatsapp/meta-api';
+import { shopLinkLine, type ShopLink } from '@/lib/evolution/render';
 import {
   ChannelError,
   rememberConversationChannel,
@@ -97,6 +98,8 @@ export interface SendMessageParams {
   channel?: ChannelRequest | null;
   /** Test send to internal numbers — not counted against the app number's daily limit. */
   testSend?: boolean;
+  /** Template sends: "Shop now" link added under the message on the WhatsApp app number. */
+  shopLink?: ShopLink | null;
 }
 
 export interface SendMessageResult {
@@ -214,6 +217,7 @@ export async function sendMessageToConversation(
     replyToMessageId,
     channel: requestedChannel,
     testSend,
+    shopLink,
   } = params;
 
   if (!conversationId) {
@@ -351,6 +355,7 @@ export async function sendMessageToConversation(
         messageParams: (templateMessageParams ?? undefined) as Parameters<typeof sendTemplateVia>[1]['messageParams'],
         params: templateParams || [],
         contextMessageId,
+        link: shopLink ?? null,
       });
       return result.messageId;
     }
@@ -472,6 +477,14 @@ export async function sendMessageToConversation(
             contentText
           )
         : (contentText ?? null);
+  // The app number shows the "Shop now" link under the message — keep it in the Inbox copy too.
+  const linkLine =
+    messageType === 'template' &&
+    transport.channel === 'evolution' &&
+    !(templateRow?.buttons ?? []).some((b) => b.type === 'URL')
+      ? shopLinkLine(shopLink)
+      : null;
+  const storedText = linkLine && persistedText ? `${persistedText}\n\n${linkLine}` : persistedText;
 
   const { data: messageRecord, error: msgError } = await db
     .from('messages')
@@ -479,7 +492,7 @@ export async function sendMessageToConversation(
       conversation_id: conversationId,
       sender_type: 'agent',
       content_type: messageType,
-      content_text: persistedText,
+      content_text: storedText,
       media_url: mediaUrl || null,
       template_name: templateName || null,
       interactive_payload:
@@ -503,7 +516,7 @@ export async function sendMessageToConversation(
   const lastMessageText =
     messageType === 'interactive'
       ? interactivePayloadPreviewText(interactivePayload!)
-      : persistedText || `[${messageType}]`;
+      : storedText || `[${messageType}]`;
 
   await db
     .from('conversations')

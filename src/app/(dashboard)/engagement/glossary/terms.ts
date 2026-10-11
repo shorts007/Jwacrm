@@ -523,6 +523,12 @@ export const GLOSSARY: TermSection[] = [
         meaning: "Agents who receive new chats. Switch on the Agents page, or the agent sends /on or /off on WhatsApp.",
       },
       {
+        term: "Shop now link",
+        aka: ["تسوق الآن"],
+        meaning:
+          "A link to the product / offer page added under every campaign and promotion message on the WhatsApp app number (“🛒 Shop now: https://…”). Default link in Campaigns → Step 3; a campaign (Step 2) or promotion can set its own. Must start with https://.",
+      },
+      {
         term: "Preview",
         meaning: "Campaigns → Step 3 → Preview: who the campaign would reach if it went live now, who is left out and why, how many days it takes at the daily limit, and the exact messages for a few real customers. Sends nothing.",
       },

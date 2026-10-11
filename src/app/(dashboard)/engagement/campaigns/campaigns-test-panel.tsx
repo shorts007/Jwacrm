@@ -18,6 +18,7 @@ export interface TestCampaign {
   template_name_bilingual?: string | null;
   test_phones?: string[] | null;
   offer_id?: string | null;
+  shop_url?: string | null;
 }
 
 interface SendResult {
@@ -41,6 +42,7 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
   const [synced, setSynced] = useState<{ name: string; language: string | null; status: string | null }[]>([]);
   const [offers, setOffers] = useState<{ id: string; offer_code: string; name: string; active: boolean }[]>([]);
   const [offerId, setOfferId] = useState("");
+  const [shopUrl, setShopUrl] = useState("");
   const [sender, setSender] = useState<{ evolutionDefault: boolean; evolutionState: string | null } | null>(null);
 
   // Templates already synced from Meta — offered as suggestions so names match exactly.
@@ -69,9 +71,10 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
     setBi(c.template_name_bilingual ?? d?.bi ?? "");
     setPhones((c.test_phones ?? []).join(", "));
     setOfferId(c.offer_id ?? "");
+    setShopUrl(c.shop_url ?? "");
     setResult(null);
     setMsg(null);
-  }, [c?.id, c?.template_name_ar, c?.template_name_en, c?.template_name_bilingual, c?.test_phones, c?.offer_id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [c?.id, c?.template_name_ar, c?.template_name_en, c?.template_name_bilingual, c?.test_phones, c?.offer_id, c?.shop_url]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!c) return null;
 
@@ -86,6 +89,10 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
       setMsg(`"${badPhone}" must look like +966501234567 (leading +, country code).`);
       return false;
     }
+    if (shopUrl.trim() && !/^https:\/\/\S+$/i.test(shopUrl.trim())) {
+      setMsg("The Shop now link must start with https://");
+      return false;
+    }
     const { error } = await createClient()
       .from("lulu_campaigns")
       .update({
@@ -94,10 +101,12 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
         template_name_bilingual: bi.trim() || null,
         test_phones: parsedPhones,
         ...(needsOffer ? { offer_id: offerId || null } : {}),
+        // Only written when set or changed, so the page keeps working before migration 065.
+        ...(shopUrl.trim() || c.shop_url ? { shop_url: shopUrl.trim() || null } : {}),
       })
       .eq("id", c.id);
     if (error) {
-      setMsg(error.message);
+      setMsg(/shop_url/.test(error.message) ? "Run migration 065 in Supabase first (Shop now links)." : error.message);
       return false;
     }
     return true;
@@ -196,6 +205,10 @@ export function TestPanel({ campaigns, onSaved }: { campaigns: TestCampaign[]; o
             )}
           </label>
         )}
+        <label className="space-y-1 text-xs text-muted-foreground">
+          🛒 Shop now link for this campaign (empty = the default from Step 3)
+          <input className={input} dir="ltr" inputMode="url" placeholder="https://…" value={shopUrl} onChange={(e) => setShopUrl(e.target.value)} />
+        </label>
         <label className="space-y-1 text-xs text-muted-foreground">
           Test phone numbers (comma-separated, with +country code)
           <input className={input} value={phones} onChange={(e) => setPhones(e.target.value)} placeholder="+966546182300" dir="ltr" />
