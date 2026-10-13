@@ -178,3 +178,160 @@ export function dowHourGrid(rows: InsightRow[]) {
 export function dataAsOf(rows: InsightRow[]): string | null {
   return rows.find((r) => r.grp === "meta" && r.dim === "data_as_of")?.dim_value ?? null;
 }
+
+// ------------------------------------------------------------------ month-on-month (departments / products)
+
+export type MomMetric = "orders" | "customers" | "revenue";
+
+/** Months where fewer orders than this have picking detail are not shown (Apr 2026: picking feed started). */
+export const MIN_PICKING_COVERAGE = 0.5;
+
+/** The month-to-date (YYYY-MM) and how many of its days have data, in Riyadh time. */
+export function currentPeriod(asOf: string | null): { month: string | null; day: number | null } {
+  const t = asOf ? Date.parse(asOf) : NaN;
+  if (!Number.isFinite(t)) return { month: null, day: null };
+  const d = new Date(t + 3 * 3600_000).toISOString(); // Riyadh = UTC+3, no DST
+  return { month: d.slice(0, 7), day: Number(d.slice(8, 10)) };
+}
+
+type Cov = Map<string, { full: number | null; td: number | null }>;
+
+/** Share of each month's orders that have picking (item) detail — full month and first N days. */
+export function pickingCoverage(rows: InsightRow[]): Cov {
+  const out: Cov = new Map();
+  for (const [month, byDim] of indexGroup(rows, "picking_coverage")) {
+    const m = byDim.get("all") ?? {};
+    out.set(month, {
+      full: m.orders ? (m.picked_orders ?? 0) / m.orders : null,
+      td: m.orders_td ? (m.picked_orders_td ?? 0) / m.orders_td : null,
+    });
+  }
+  return out;
+}
+
+export interface ComparePair {
+  key: "full" | "td";
+  cur: string;
+  prev: string;
+  /** true = first N days of both months (the current month is not finished). */
+  partial: boolean;
+}
+
+/** The comparisons worth showing: last complete month vs the one before, and month-to-date vs the same days last month. */
+export function comparePairs(rows: InsightRow[], grp: string, asOf: string | null): ComparePair[] {
+  const months = new Set(indexGroup(rows, grp).keys());
+  const { month: current } = currentPeriod(asOf);
+  const complete = [...months].filter((m) => m !== current).sort();
+  const out: ComparePair[] = [];
+  const last = complete.at(-1);
+  if (last && months.has(addMonths(last, -1))) out.push({ key: "full", cur: last, prev: addMonths(last, -1), partial: false });
+  if (current && months.has(current) && months.has(addMonths(current, -1))) {
+    out.push({ key: "td", cur: current, prev: addMonths(current, -1), partial: true });
+  }
+  return out;
+}
+
+/**
+ * One value, scaled up for orders without picking detail (`adjust`). `partial` = first N days only
+ * (`<metric>_td`; for the month-to-date itself that is the whole month so far). null = not measurable.
+ */
+function momValue(
+  idx: Map<string, Map<string, Record<string, number>>>,
+  cov: Cov | null,
+  month: string,
+  dim: string,
+  metric: MomMetric,
+  partial: boolean,
+  current: string | null,
+): number | null {
+  const byDim = idx.get(month);
+  if (!byDim) return null;
+  const rec = byDim.get(dim);
+  const raw = partial ? (rec?.[`${metric}_td`] ?? (month === current ? rec?.[metric] : undefined)) : rec?.[metric];
+  if (partial && raw === undefined && rec && month !== current) return null; // no like-for-like figure for this month
+  const v = raw ?? 0;
+  if (!cov || cov.size === 0) return v;
+  const c = partial ? cov.get(month)?.td : cov.get(month)?.full;
+  if (c === undefined || c === null || c < MIN_PICKING_COVERAGE) return null;
+  return v / c;
+}
+
+export interface MomCell {
+  month: string;
+  value: number | null;
+  /** vs the previous month; for the month-to-date: vs the same days of the previous month. */
+  change: number | null;
+}
+
+export interface MomRow {
+  dim: string;
+  cells: MomCell[];
+}
+
+/**
+ * Month-on-month table for `dept` / `product_monthly`: last `n` months, each value with its change
+ * vs the previous month. Values are scaled by picking coverage so gaps in the picking feed do not
+ * show as drops. `total` = all orders (from picking_coverage), the yardstick for "better / worse than overall".
+ */
+export function momTable(rows: InsightRow[], grp: string, metric: MomMetric, asOf: string | null, n = 6) {
+  const idx = indexGroup(rows, grp);
+  const cov = pickingCoverage(rows);
+  const { month: current, day } = currentPeriod(asOf);
+  const months = [...idx.keys()]
+    .sort()
+    .filter((m) => cov.size === 0 || (cov.get(m)?.full ?? 0) >= MIN_PICKING_COVERAGE)
+    .slice(-n);
+
+  const cellsFor = (ix: typeof idx, c: Cov | null, dim: string): MomCell[] =>
+    months.map((m) => {
+      const partial = m === current;
+      const value = momValue(ix, c, m, dim, metric, false, current);
+      const now = momValue(ix, c, m, dim, metric, partial, current);
+      const before = ix.has(addMonths(m, -1)) ? momValue(ix, c, addMonths(m, -1), dim, metric, partial, current) : null;
+      return { month: m, value, change: now !== null && before !== null ? pctChange(now, before) : null };
+    });
+
+  const dims = new Set<string>();
+  for (const m of months) for (const d of idx.get(m)?.keys() ?? []) dims.add(d);
+  const table: MomRow[] = [...dims].map((dim) => ({ dim, cells: cellsFor(idx, cov, dim) }));
+  const lastComplete = months.filter((m) => m !== current).at(-1);
+  const li = lastComplete ? months.indexOf(lastComplete) : months.length - 1;
+  table.sort((a, b) => (b.cells[li]?.value ?? 0) - (a.cells[li]?.value ?? 0));
+
+  const covIdx = indexGroup(rows, "picking_coverage");
+  const total: MomRow | null = covIdx.size ? { dim: "all", cells: cellsFor(covIdx, null, "all") } : null;
+  return { months, current, day, rows: table, total, adjusted: cov.size > 0 };
+}
+
+export interface Mover {
+  dim: string;
+  before: number;
+  now: number;
+  delta: number;
+  change: number | null;
+}
+
+/** Biggest risers and fallers between two months (scaled by picking coverage), sorted by change in value. */
+export function movers(rows: InsightRow[], grp: string, metric: MomMetric, pair: ComparePair, asOf: string | null) {
+  const idx = indexGroup(rows, grp);
+  const cov = pickingCoverage(rows);
+  const { month: current } = currentPeriod(asOf);
+  const dims = new Set([...(idx.get(pair.cur)?.keys() ?? []), ...(idx.get(pair.prev)?.keys() ?? [])]);
+  const list: Mover[] = [];
+  for (const dim of dims) {
+    const now = momValue(idx, cov, pair.cur, dim, metric, pair.partial, current);
+    const before = momValue(idx, cov, pair.prev, dim, metric, pair.partial, current);
+    if (now === null || before === null) continue;
+    list.push({ dim, before, now, delta: now - before, change: pctChange(now, before) });
+  }
+  list.sort((a, b) => b.delta - a.delta);
+  const covIdx = indexGroup(rows, "picking_coverage");
+  const tNow = covIdx.size ? momValue(covIdx, null, pair.cur, "all", metric, pair.partial, current) : null;
+  const tBefore = covIdx.size ? momValue(covIdx, null, pair.prev, "all", metric, pair.partial, current) : null;
+  const total = tNow !== null && tBefore !== null ? { before: tBefore, now: tNow, delta: tNow - tBefore, change: pctChange(tNow, tBefore) } : null;
+  return {
+    up: list.filter((m) => m.delta > 0),
+    down: list.filter((m) => m.delta < 0).reverse(),
+    total,
+  };
+}
