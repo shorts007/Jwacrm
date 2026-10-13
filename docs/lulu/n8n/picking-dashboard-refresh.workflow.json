@@ -1,0 +1,128 @@
+{
+  "name": "LuLu - Picking dashboard refresh (BigQuery)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Picking dashboard refresh\nRebuilds the dashboard tables from `instaleap_raw` (Instaleap + Increff picking data):\n1. `instaleap_dashboard_native`\n2. `instaleap_dashboard`\n3. `instaleap_daily_summary` (built from step 1, so it runs last)\n4. Check: compares job counts with `instaleap_raw` and fails the run if they differ.\n\n**Credential:** Google BigQuery. It must be allowed to CREATE tables (BigQuery Data Editor + Job User). The read-only key used by the customer sync is not enough - use the same credential as your Increff load workflow.\n\n**When:** the schedule runs daily at 15:45 and 22:00 (n8n's timezone - set Asia/Riyadh in workflow settings). Better: add an *Execute Workflow* node at the end of the Increff load workflow pointing here, so it rebuilds right after new data lands.",
+        "height": 420,
+        "width": 480,
+        "color": 4
+      },
+      "id": "p-note",
+      "name": "Setup notes",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-160, -300]
+    },
+    {
+      "parameters": {},
+      "id": "p-manual",
+      "name": "Manual",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 160]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "cronExpression", "expression": "0 45 15 * * *" },
+            { "field": "cronExpression", "expression": "0 0 22 * * *" }
+          ]
+        }
+      },
+      "id": "p-sched",
+      "name": "Daily 15:45 + 22:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 340]
+    },
+    {
+      "parameters": {},
+      "id": "p-exec",
+      "name": "Called by another workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [0, 520]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "projectId": { "__rl": true, "value": "myecomlulu", "mode": "id" },
+        "sqlQuery": "CREATE OR REPLACE TABLE `myecomlulu.jackpot.instaleap_dashboard_native`\nPARTITION BY report_date\nCLUSTER BY store_reference, picker_id AS\nSELECT id, job_number, job_state, state, store_reference, store_name, store_name_1,\n       operational_model, reference, name, category, unit, quantity, found_quantity,\n       missing_quantity, rejected_quantity, lost_sale, is_substitute, replaced_by,\n       replaced_by_product, picker_id, picker_name, picking_task_id, picking_mode,\n       slot_from, slot_to, created_at, updated_at, picked_at,\n       DATE(picked_at) AS report_date,\n       location, price, origin, action, presentation, presentation_v2, comment\nFROM `myecomlulu.jackpot.instaleap_raw`",
+        "options": {}
+      },
+      "id": "p-native",
+      "name": "1. Rebuild instaleap_dashboard_native",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2.1,
+      "position": [280, 340],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "projectId": { "__rl": true, "value": "myecomlulu", "mode": "id" },
+        "sqlQuery": "CREATE OR REPLACE TABLE `myecomlulu.jackpot.instaleap_dashboard`\nPARTITION BY TIMESTAMP_TRUNC(picked_at, DAY)\nCLUSTER BY store_reference, picker_id AS\nSELECT id, job_number, job_state, slot_from, slot_to, store_name, store_reference, store_name_1,\n       picker_id, picker_name, name, category, unit, quantity, found_quantity, missing_quantity,\n       lost_sale, price, state, picking_mode, action, operational_model, created_at, updated_at,\n       picked_at, is_substitute, replaced_by, replaced_by_product, picking_task_id\nFROM `myecomlulu.jackpot.instaleap_raw`",
+        "options": {}
+      },
+      "id": "p-dash",
+      "name": "2. Rebuild instaleap_dashboard",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2.1,
+      "position": [540, 340],
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "projectId": { "__rl": true, "value": "myecomlulu", "mode": "id" },
+        "sqlQuery": "CREATE OR REPLACE TABLE `myecomlulu.jackpot.instaleap_daily_summary`\nPARTITION BY report_date\nCLUSTER BY store_reference AS\nSELECT report_date, store_reference, ANY_VALUE(store_name) AS store_name,\n  COUNT(DISTINCT job_number) AS orders,\n  COUNT(*) AS order_items,\n  SUM(quantity) AS ordered_quantity,\n  SUM(found_quantity) AS found_quantity,\n  SUM(missing_quantity) AS missing_quantity,\n  SUM(lost_sale) AS lost_sale_quantity,\n  SUM(SAFE_CAST(JSON_VALUE(rejected_quantity,'$.rejectedByUser') AS INT64)) AS rejected_by_user,\n  SUM(SAFE_CAST(JSON_VALUE(rejected_quantity,'$.rejectedByDriver') AS INT64)) AS rejected_by_driver,\n  SUM(SAFE_CAST(JSON_VALUE(rejected_quantity,'$.rejectedByPicker') AS INT64)) AS rejected_by_picker,\n  SUM(IFNULL(SAFE_CAST(JSON_VALUE(rejected_quantity,'$.rejectedByUser') AS INT64),0)\n    + IFNULL(SAFE_CAST(JSON_VALUE(rejected_quantity,'$.rejectedByDriver') AS INT64),0)\n    + IFNULL(SAFE_CAST(JSON_VALUE(rejected_quantity,'$.rejectedByPicker') AS INT64),0)) AS total_rejected,\n  COUNTIF(missing_quantity>0) AS items_with_missing_quantity,\n  COUNTIF(lost_sale>0) AS items_with_lost_sale,\n  COUNTIF(is_substitute) AS substitute_items,\n  COUNT(DISTINCT picker_id) AS active_pickers\nFROM `myecomlulu.jackpot.instaleap_dashboard_native`\nGROUP BY report_date, store_reference",
+        "options": {}
+      },
+      "id": "p-sum",
+      "name": "3. Rebuild instaleap_daily_summary",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2.1,
+      "position": [800, 340],
+      "alwaysOutputData": true,
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "projectId": { "__rl": true, "value": "myecomlulu", "mode": "id" },
+        "sqlQuery": "SELECT\n  (SELECT COUNT(DISTINCT job_number) FROM `myecomlulu.jackpot.instaleap_raw`) AS raw_jobs,\n  (SELECT COUNT(DISTINCT job_number) FROM `myecomlulu.jackpot.instaleap_dashboard`) AS dashboard_jobs,\n  (SELECT COUNT(DISTINCT job_number) FROM `myecomlulu.jackpot.instaleap_dashboard_native`) AS native_jobs,\n  (SELECT CAST(MAX(report_date) AS STRING) FROM `myecomlulu.jackpot.instaleap_daily_summary`) AS summary_latest_day,\n  FORMAT_TIMESTAMP('%d %b %H:%M', (SELECT MAX(slot_from) FROM `myecomlulu.jackpot.instaleap_dashboard`), 'Asia/Riyadh') AS dashboard_latest_slot",
+        "options": {}
+      },
+      "id": "p-check-q",
+      "name": "4. Compare with instaleap_raw",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2.1,
+      "position": [1060, 340],
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const r = $input.first().json;\nconst raw = Number(r.raw_jobs), dash = Number(r.dashboard_jobs), nat = Number(r.native_jobs);\nif (!raw || dash !== raw || nat !== raw) {\n  throw new Error(`Dashboard tables do not match instaleap_raw: raw ${raw} jobs, dashboard ${dash}, native ${nat}`);\n}\nreturn [{ json: { ok: true, ...r } }];"
+      },
+      "id": "p-check",
+      "name": "Fail if counts differ",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1300, 340]
+    }
+  ],
+  "connections": {
+    "Manual": { "main": [[{ "node": "1. Rebuild instaleap_dashboard_native", "type": "main", "index": 0 }]] },
+    "Daily 15:45 + 22:00": { "main": [[{ "node": "1. Rebuild instaleap_dashboard_native", "type": "main", "index": 0 }]] },
+    "Called by another workflow": { "main": [[{ "node": "1. Rebuild instaleap_dashboard_native", "type": "main", "index": 0 }]] },
+    "1. Rebuild instaleap_dashboard_native": { "main": [[{ "node": "2. Rebuild instaleap_dashboard", "type": "main", "index": 0 }]] },
+    "2. Rebuild instaleap_dashboard": { "main": [[{ "node": "3. Rebuild instaleap_daily_summary", "type": "main", "index": 0 }]] },
+    "3. Rebuild instaleap_daily_summary": { "main": [[{ "node": "4. Compare with instaleap_raw", "type": "main", "index": 0 }]] },
+    "4. Compare with instaleap_raw": { "main": [[{ "node": "Fail if counts differ", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1", "timezone": "Asia/Riyadh" },
+  "active": false
+}

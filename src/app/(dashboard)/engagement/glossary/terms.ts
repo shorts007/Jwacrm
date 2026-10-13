@@ -460,7 +460,15 @@ export const GLOSSARY: TermSection[] = [
         aka: ["Likelihood vs chance", "Lift (pairs)"],
         meaning: "Product pairs found in the same basket more often than chance. 2.4× = 2.4 times more often than if they were unrelated.",
       },
-      { term: "Department code", meaning: "The first 3 digits of the product category code (e.g. 006). Names need a code list." },
+      {
+        term: "Department",
+        aka: ["Department code"],
+        meaning: "The first 3 digits of the product category code, shown with a name worked out from the products sold under it (e.g. 006 = Fruits & vegetables, 004 = Dairy & eggs, 011 = Butchery).",
+      },
+      {
+        term: "So far this month (MTD)",
+        meaning: "Delivered orders from the 1st of the month up to the newest order in BigQuery (time shown). Orders not yet delivered, and anything after the last BigQuery load, are not counted yet.",
+      },
     ],
   },
   {

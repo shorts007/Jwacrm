@@ -88,6 +88,43 @@ export function completeMonths(series: MonthPoint[], asOf: string | null) {
   return { cur: done.at(-1) ?? null, prev: done.at(-2) ?? null, mtd: series.find((p) => p.month === asOfMonth) ?? null };
 }
 
+/** "12 Oct, 18:13" in Riyadh time. */
+const riyadhStamp = (iso: string) =>
+  new Date(iso).toLocaleString("en-GB", { timeZone: "Asia/Riyadh", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+
+/**
+ * Department names for the 3-digit category prefix (picking data). Inferred from the products sold
+ * under each code — correct them here if LuLu's own department list uses other names.
+ */
+export const DEPT_NAMES: Record<string, string> = {
+  "001": "Grocery (food & water)",
+  "002": "Household & cleaning",
+  "003": "Personal care",
+  "004": "Dairy & eggs",
+  "005": "Frozen food",
+  "006": "Fruits & vegetables",
+  "007": "Bakery",
+  "008": "Nuts, dates & pulses",
+  "009": "Deli & cheese",
+  "010": "Hot food & snacks",
+  "011": "Butchery (meat & chicken)",
+  "012": "Fish & seafood",
+  "014": "Laptops & tablets",
+  "015": "Stationery",
+  "016": "Housewares & kitchen",
+  "017": "Health & grooming devices",
+  "019": "Home textiles & furnishing",
+  "023": "Toys",
+  "034": "Charcoal & BBQ",
+  "036": "Small appliances",
+  "037": "Sports",
+  "039": "Cosmetics & beauty",
+  "040": "Perfumes",
+  "044": "Mobile phones",
+  "046": "Mobile & gadget accessories",
+};
+export const deptLabel = (code: string) => DEPT_NAMES[code] ?? (code === "unknown" ? "Unknown" : `Department ${code}`);
+
 export function MonthKpis({ rows, asOf }: { rows: InsightRow[]; asOf: string | null }) {
   const series = monthlySeries(rows);
   const { cur, prev, mtd } = completeMonths(series, asOf);
@@ -106,7 +143,8 @@ export function MonthKpis({ rows, asOf }: { rows: InsightRow[]; asOf: string | n
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">
         {monthLabel(cur.month)} vs {prev ? monthLabel(prev.month) : "—"} (complete months).
-        {mtd && ` ${monthLabel(mtd.month)} so far: ${n0(mtd.orders)} orders, ${sar(mtd.revenue)}.`}
+        {mtd &&
+          ` ${monthLabel(mtd.month)} so far${asOf ? ` (orders up to ${riyadhStamp(asOf)})` : ""}: ${n0(mtd.orders)} orders, ${sar(mtd.revenue)}.`}
       </p>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {items.map((i) => (
@@ -531,7 +569,7 @@ export function DeptTable({ rows }: { rows: InsightRow[] }) {
       <table className="w-full text-left text-sm">
         <thead className="text-xs text-muted-foreground">
           <tr>
-            <th className="px-2 py-1.5 font-medium">Department code</th>
+            <th className="px-2 py-1.5 font-medium">Department</th>
             {months.map((m) => (
               <th key={m} className="px-2 py-1.5 text-right font-medium">{monthLabel(m)}</th>
             ))}
@@ -540,7 +578,9 @@ export function DeptTable({ rows }: { rows: InsightRow[] }) {
         <tbody>
           {list.map(([dept, vals]) => (
             <tr key={dept} className="border-t border-border">
-              <td className="px-2 py-1.5 text-foreground">{dept}</td>
+              <td className="px-2 py-1.5 text-foreground">
+                {deptLabel(dept)} <span className="text-xs text-muted-foreground">{dept}</span>
+              </td>
               {vals.map((v, i) => (
                 <td key={i} className="px-2 py-1.5 text-right tabular-nums">{n0(v)}</td>
               ))}
@@ -548,7 +588,9 @@ export function DeptTable({ rows }: { rows: InsightRow[] }) {
           ))}
         </tbody>
       </table>
-      <p className="mt-1 text-xs text-muted-foreground">Revenue in SAR from picking data. Codes need a code → name list to show department names.</p>
+      <p className="mt-1 text-xs text-muted-foreground">
+        Revenue in SAR from picking data. Names are worked out from the products in each department code (shown in grey).
+      </p>
     </div>
   );
 }
