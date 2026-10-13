@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## LuLu customer sync (BigQuery -> WACRM)\n**Before running**\n1. In BigQuery run `docs/lulu/bigquery/create_view.sql` (creates `lulu_customer_master`) AND `create_insights_view.sql` (creates `lulu_insights_metrics`) AND `create_recent_orders_view.sql` (creates `lulu_recent_orders`).\n2. In Supabase run migrations 043-055.\n3. In WACRM: Settings -> API keys -> create a key with scope `contacts:write`.\n4. n8n credentials: *Google BigQuery* (service account with BigQuery Data Viewer + Job User) and *Header Auth* (name `Authorization`, value `Bearer <your key>`) - used by BOTH HTTP nodes.\n5. URLs point at https://jwacrm.vercel.app - change them if your domain differs.\n\n**How a run works:** all customers are sent in batches tagged with one run id. Only if every batch saved, the last step retires customers no longer in the feed (they are hidden, not deleted, and come back automatically if they reappear). A partial run never retires anyone.\n\nRun **Manual** first and check `/engagement`. The schedule is off until you activate the workflow.\n\n**Three branches:** customers (batches + finish), the Customer Insights snapshot, and recent orders for campaign revenue attribution.",
+        "content": "## LuLu customer sync (BigQuery -> WACRM)\n**Before running**\n1. In BigQuery run `docs/lulu/bigquery/create_view.sql` (creates `lulu_customer_master`) AND `create_insights_view.sql` (creates `lulu_insights_metrics`) AND `create_insights_trends_view.sql` (creates `lulu_insights_trends`) AND `create_recent_orders_view.sql` (creates `lulu_recent_orders`).\n2. In Supabase run migrations 043-055.\n3. In WACRM: Settings -> API keys -> create a key with scope `contacts:write`.\n4. n8n credentials: *Google BigQuery* (service account with BigQuery Data Viewer + Job User) and *Header Auth* (name `Authorization`, value `Bearer <your key>`) - used by BOTH HTTP nodes.\n5. URLs point at https://jwacrm.vercel.app - change them if your domain differs.\n\n**How a run works:** all customers are sent in batches tagged with one run id. Only if every batch saved, the last step retires customers no longer in the feed (they are hidden, not deleted, and come back automatically if they reappear). A partial run never retires anyone.\n\nRun **Manual** first and check `/engagement`. The schedule is off until you activate the workflow.\n\n**Three branches:** customers (batches + finish), the Customer Insights snapshot, and recent orders for campaign revenue attribution.",
         "height": 480,
         "width": 520,
         "color": 4
@@ -232,7 +232,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// All insight rows go in ONE request (a few thousand aggregate rows, no personal data).\nconst rows = $input.all().map(i => i.json);\nif (rows.length === 0) throw new Error('lulu_insights_metrics returned 0 rows - run create_insights_view.sql');\nreturn [{ json: { rows } }];"
+        "jsCode": "// All insight rows go in ONE request (aggregates only, no personal data).\n// Two BigQuery views: lulu_insights_metrics (main) + lulu_insights_trends (month-on-month sections).\nconst main = $('BigQuery insights metrics').all().map(i => i.json);\nconst trends = $('BigQuery insights trends').all().map(i => i.json);\nif (main.length === 0) throw new Error('lulu_insights_metrics returned 0 rows - run create_insights_view.sql');\nif (trends.length === 0) throw new Error('lulu_insights_trends returned 0 rows - run create_insights_trends_view.sql');\nreturn [{ json: { rows: main.concat(trends) } }];"
       },
       "id": "n-ins-build",
       "name": "Build insights payload",
@@ -327,6 +327,27 @@
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "projectId": {
+          "__rl": true,
+          "value": "myecomlulu",
+          "mode": "id"
+        },
+        "sqlQuery": "SELECT * FROM `myecomlulu.jackpot.lulu_insights_trends`",
+        "options": {}
+      },
+      "id": "n-ins-trends",
+      "name": "BigQuery insights trends",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2.1,
+      "position": [
+        520,
+        660
+      ],
+      "executeOnce": true
     }
   ],
   "connections": {
@@ -461,7 +482,7 @@
       "main": [
         [
           {
-            "node": "Build insights payload",
+            "node": "BigQuery insights trends",
             "type": "main",
             "index": 0
           }
@@ -495,6 +516,17 @@
         [
           {
             "node": "POST attribution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BigQuery insights trends": {
+      "main": [
+        [
+          {
+            "node": "Build insights payload",
             "type": "main",
             "index": 0
           }

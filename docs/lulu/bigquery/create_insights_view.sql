@@ -1,5 +1,7 @@
 -- Creates the view the insights sync reads:  SELECT * FROM `myecomlulu.jackpot.lulu_insights_metrics`
 -- (generated from insights_metrics.sql)
+-- The month-on-month groups (dept, product_monthly, group_monthly, group_label, picking_coverage) live in a
+-- separate view, create_insights_trends_view.sql — one combined query is too complex for BigQuery.
 CREATE OR REPLACE VIEW `myecomlulu.jackpot.lulu_insights_metrics` AS
 WITH params AS (
   SELECT
@@ -390,161 +392,6 @@ m_product AS (
     STRUCT('customers' AS metric, CAST(a.customers AS FLOAT64) AS value)
   ]) AS x
 ),
--- ---------------------------------------------------------------- month-on-month by department / product
--- Picking items of the orders in `base` (same orders as the monthly figures), dated by ORDER date.
--- Picking detail is missing for some orders (Apr 2026 partly, ~6-9% from Aug 2026), so `picking_coverage`
--- gives the share of orders that have it; the page scales by it so a feed gap does not look like a drop.
--- *_td = first N days of each month, N = days elapsed in the current month (like-for-like with month-to-date).
-td_day AS (SELECT EXTRACT(DAY FROM d) AS dom FROM as_of),
-items_b AS (
-  SELECT it.order_number_str, it.name, IFNULL(it.dept, 'unknown') AS dept, IFNULL(it.fam, 'unknown') AS fam, it.sales, it.units,
-         b.phone, b.month, b.month_date, EXTRACT(DAY FROM b.order_date) <= (SELECT dom FROM td_day) AS in_td
-  FROM items_d AS it
-  JOIN base AS b ON CAST(b.order_number AS STRING) = it.order_number_str
-  WHERE b.month_date >= DATE_SUB(DATE_TRUNC((SELECT d FROM as_of), MONTH), INTERVAL (SELECT trend_months FROM params) MONTH)
-),
-cover AS (
-  SELECT b.month,
-         COUNT(*) AS orders,
-         COUNT(DISTINCT b.phone) AS customers,
-         SUM(b.amount) AS revenue,
-         COUNTIF(p.order_number_str IS NOT NULL) AS picked_orders,
-         COUNTIF(EXTRACT(DAY FROM b.order_date) <= (SELECT dom FROM td_day)) AS orders_td,
-         COUNT(DISTINCT IF(EXTRACT(DAY FROM b.order_date) <= (SELECT dom FROM td_day), b.phone, NULL)) AS customers_td,
-         SUM(IF(EXTRACT(DAY FROM b.order_date) <= (SELECT dom FROM td_day), b.amount, 0)) AS revenue_td,
-         COUNTIF(EXTRACT(DAY FROM b.order_date) <= (SELECT dom FROM td_day) AND p.order_number_str IS NOT NULL) AS picked_orders_td
-  FROM base AS b
-  LEFT JOIN (SELECT DISTINCT order_number_str FROM items_b) AS p ON CAST(b.order_number AS STRING) = p.order_number_str
-  WHERE b.month_date >= DATE_SUB(DATE_TRUNC((SELECT d FROM as_of), MONTH), INTERVAL (SELECT trend_months FROM params) MONTH)
-  GROUP BY b.month
-),
-m_cover AS (
-  SELECT 'picking_coverage' AS grp, a.month AS period, 'all' AS dim, 'all' AS dim_value, x.metric, x.value
-  FROM cover AS a,
-  UNNEST([
-    -- ALL orders of the month (the yardstick), and how many of them have picking detail
-    STRUCT('orders' AS metric, CAST(a.orders AS FLOAT64) AS value),
-    STRUCT('customers' AS metric, CAST(a.customers AS FLOAT64) AS value),
-    STRUCT('revenue' AS metric, CAST(a.revenue AS FLOAT64) AS value),
-    STRUCT('picked_orders' AS metric, CAST(a.picked_orders AS FLOAT64) AS value),
-    STRUCT('orders_td' AS metric, CAST(a.orders_td AS FLOAT64) AS value),
-    STRUCT('customers_td' AS metric, CAST(a.customers_td AS FLOAT64) AS value),
-    STRUCT('revenue_td' AS metric, CAST(a.revenue_td AS FLOAT64) AS value),
-    STRUCT('picked_orders_td' AS metric, CAST(a.picked_orders_td AS FLOAT64) AS value)
-  ]) AS x
-),
-dept_month AS (
-  SELECT month, dept,
-         SUM(sales) AS revenue,
-         COUNT(DISTINCT order_number_str) AS orders,
-         COUNT(DISTINCT phone) AS customers,
-         SUM(IF(in_td, sales, 0)) AS revenue_td,
-         COUNT(DISTINCT IF(in_td, order_number_str, NULL)) AS orders_td,
-         COUNT(DISTINCT IF(in_td, phone, NULL)) AS customers_td
-  FROM items_b
-  GROUP BY month, dept
-),
-m_dept AS (
-  SELECT 'dept' AS grp, a.month AS period, 'dept' AS dim, a.dept AS dim_value, x.metric, x.value
-  FROM dept_month AS a,
-  UNNEST([
-    STRUCT('revenue' AS metric, CAST(a.revenue AS FLOAT64) AS value),
-    STRUCT('orders' AS metric, CAST(a.orders AS FLOAT64) AS value),
-    STRUCT('customers' AS metric, CAST(a.customers AS FLOAT64) AS value),
-    STRUCT('revenue_td' AS metric, CAST(a.revenue_td AS FLOAT64) AS value),
-    STRUCT('orders_td' AS metric, CAST(a.orders_td AS FLOAT64) AS value),
-    STRUCT('customers_td' AS metric, CAST(a.customers_td AS FLOAT64) AS value)
-  ]) AS x
-),
-prod_univ AS (
-  SELECT name FROM (
-    SELECT name, COUNT(DISTINCT order_number_str) AS o, SUM(sales) AS r
-    FROM items_b
-    WHERE month_date >= DATE_SUB(DATE_TRUNC((SELECT d FROM as_of), MONTH), INTERVAL 2 MONTH)
-    GROUP BY name
-  )
-  WHERE TRUE
-  QUALIFY ROW_NUMBER() OVER (ORDER BY o DESC) <= (SELECT trend_products FROM params)
-       OR ROW_NUMBER() OVER (ORDER BY r DESC) <= (SELECT top_products FROM params)
-),
-prod_month AS (
-  SELECT month, name,
-         SUM(sales) AS revenue,
-         COUNT(DISTINCT order_number_str) AS orders,
-         COUNT(DISTINCT phone) AS customers,
-         SUM(IF(in_td, sales, 0)) AS revenue_td,
-         COUNT(DISTINCT IF(in_td, order_number_str, NULL)) AS orders_td,
-         COUNT(DISTINCT IF(in_td, phone, NULL)) AS customers_td
-  FROM items_b
-  WHERE name IN (SELECT name FROM prod_univ)
-  GROUP BY month, name
-),
-m_prod_month AS (
-  SELECT 'product_monthly' AS grp, a.month AS period, 'product' AS dim, a.name AS dim_value, x.metric, x.value
-  FROM prod_month AS a,
-  UNNEST([
-    STRUCT('revenue' AS metric, CAST(a.revenue AS FLOAT64) AS value),
-    STRUCT('orders' AS metric, CAST(a.orders AS FLOAT64) AS value),
-    STRUCT('customers' AS metric, CAST(a.customers AS FLOAT64) AS value),
-    -- like-for-like days are only needed for the last two months (current month vs the same days before)
-    STRUCT('revenue_td' AS metric, IF(a.month >= FORMAT_DATE('%Y-%m', DATE_SUB(DATE_TRUNC((SELECT d FROM as_of), MONTH), INTERVAL 1 MONTH)), CAST(a.revenue_td AS FLOAT64), NULL) AS value),
-    STRUCT('orders_td' AS metric, IF(a.month >= FORMAT_DATE('%Y-%m', DATE_SUB(DATE_TRUNC((SELECT d FROM as_of), MONTH), INTERVAL 1 MONTH)), CAST(a.orders_td AS FLOAT64), NULL) AS value),
-    STRUCT('customers_td' AS metric, IF(a.month >= FORMAT_DATE('%Y-%m', DATE_SUB(DATE_TRUNC((SELECT d FROM as_of), MONTH), INTERVAL 1 MONTH)), CAST(a.customers_td AS FLOAT64), NULL) AS value)
-  ]) AS x
-),
--- Product groups (9-digit category): same metrics, top 150 groups by orders + top 40 by revenue (last 3 months).
-fam_univ AS (
-  SELECT fam FROM (
-    SELECT fam, COUNT(DISTINCT order_number_str) AS o, SUM(sales) AS r
-    FROM items_b
-    WHERE fam != 'unknown'
-      AND month_date >= DATE_SUB(DATE_TRUNC((SELECT d FROM as_of), MONTH), INTERVAL 2 MONTH)
-    GROUP BY fam
-  )
-  WHERE TRUE
-  QUALIFY ROW_NUMBER() OVER (ORDER BY o DESC) <= (SELECT trend_products FROM params)
-       OR ROW_NUMBER() OVER (ORDER BY r DESC) <= (SELECT top_products FROM params)
-),
-fam_month AS (
-  SELECT month, fam,
-         SUM(sales) AS revenue,
-         COUNT(DISTINCT order_number_str) AS orders,
-         COUNT(DISTINCT phone) AS customers,
-         SUM(IF(in_td, sales, 0)) AS revenue_td,
-         COUNT(DISTINCT IF(in_td, order_number_str, NULL)) AS orders_td,
-         COUNT(DISTINCT IF(in_td, phone, NULL)) AS customers_td
-  FROM items_b
-  WHERE fam IN (SELECT fam FROM fam_univ)
-  GROUP BY month, fam
-),
-m_fam_month AS (
-  SELECT 'group_monthly' AS grp, a.month AS period, 'group' AS dim, a.fam AS dim_value, x.metric, x.value
-  FROM fam_month AS a,
-  UNNEST([
-    STRUCT('revenue' AS metric, CAST(a.revenue AS FLOAT64) AS value),
-    STRUCT('orders' AS metric, CAST(a.orders AS FLOAT64) AS value),
-    STRUCT('customers' AS metric, CAST(a.customers AS FLOAT64) AS value),
-    STRUCT('revenue_td' AS metric, IF(a.month >= FORMAT_DATE('%Y-%m', DATE_SUB(DATE_TRUNC((SELECT d FROM as_of), MONTH), INTERVAL 1 MONTH)), CAST(a.revenue_td AS FLOAT64), NULL) AS value),
-    STRUCT('orders_td' AS metric, IF(a.month >= FORMAT_DATE('%Y-%m', DATE_SUB(DATE_TRUNC((SELECT d FROM as_of), MONTH), INTERVAL 1 MONTH)), CAST(a.orders_td AS FLOAT64), NULL) AS value),
-    STRUCT('customers_td' AS metric, IF(a.month >= FORMAT_DATE('%Y-%m', DATE_SUB(DATE_TRUNC((SELECT d FROM as_of), MONTH), INTERVAL 1 MONTH)), CAST(a.customers_td AS FLOAT64), NULL) AS value)
-  ]) AS x
-),
--- Label for each group: its best-selling product (last 3 months) and how many products it has.
-m_fam_label AS (
-  SELECT 'group_label' AS grp, 'all' AS period, fam AS dim, top_name AS dim_value, 'products' AS metric, CAST(skus AS FLOAT64) AS value
-  FROM (
-    SELECT fam, ARRAY_AGG(name ORDER BY o DESC, name LIMIT 1)[OFFSET(0)] AS top_name, COUNT(*) AS skus
-    FROM (
-      SELECT fam, name, COUNT(DISTINCT order_number_str) AS o
-      FROM items_b
-      WHERE fam IN (SELECT fam FROM fam_univ)
-        AND month_date >= DATE_SUB(DATE_TRUNC((SELECT d FROM as_of), MONTH), INTERVAL 2 MONTH)
-      GROUP BY fam, name
-    )
-    GROUP BY fam
-  )
-),
-
 -- ---------------------------------------------------------------- frequently bought together (last 180 days)
 basket_i AS (
   SELECT DISTINCT order_number_str AS ord, name FROM items_f
@@ -596,11 +443,6 @@ FROM (
   UNION ALL SELECT * FROM m_freq
   UNION ALL SELECT * FROM m_dow
   UNION ALL SELECT * FROM m_product
-  UNION ALL SELECT * FROM m_dept
-  UNION ALL SELECT * FROM m_cover
-  UNION ALL SELECT * FROM m_prod_month
-  UNION ALL SELECT * FROM m_fam_month
-  UNION ALL SELECT * FROM m_fam_label
   UNION ALL SELECT * FROM m_pair
   UNION ALL SELECT * FROM m_meta
 )
