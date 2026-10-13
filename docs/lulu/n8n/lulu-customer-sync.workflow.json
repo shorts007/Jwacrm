@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## LuLu customer sync (BigQuery -> WACRM)\n**Before running**\n1. In BigQuery run `docs/lulu/bigquery/create_view.sql` (creates `lulu_customer_master`) AND `create_insights_view.sql` (creates `lulu_insights_metrics`) AND `create_insights_trends_view.sql` (creates `lulu_insights_trends`) AND `create_recent_orders_view.sql` (creates `lulu_recent_orders`).\n2. In Supabase run migrations 043-055.\n3. In WACRM: Settings -> API keys -> create a key with scope `contacts:write`.\n4. n8n credentials: *Google BigQuery* (service account with BigQuery Data Viewer + Job User) and *Header Auth* (name `Authorization`, value `Bearer <your key>`) - used by BOTH HTTP nodes.\n5. URLs point at https://jwacrm.vercel.app - change them if your domain differs.\n\n**How a run works:** all customers are sent in batches tagged with one run id. Only if every batch saved, the last step retires customers no longer in the feed (they are hidden, not deleted, and come back automatically if they reappear). A partial run never retires anyone.\n\nRun **Manual** first and check `/engagement`. The schedule is off until you activate the workflow.\n\n**Three branches:** customers (batches + finish), the Customer Insights snapshot, and recent orders for campaign revenue attribution.",
+        "content": "## LuLu customer sync (BigQuery -> WACRM)\n**Before running**\n1. In BigQuery run `docs/lulu/bigquery/create_view.sql` (creates `lulu_customer_master`) AND `create_insights_view.sql` (creates `lulu_insights_metrics`) AND `create_insights_trends_view.sql` (creates `lulu_insights_trends`) AND `create_recent_orders_view.sql` (creates `lulu_recent_orders`).\n2. In Supabase run migrations 043-055.\n3. In WACRM: Settings -> API keys -> create a key with scope `contacts:write`.\n4. n8n credentials: *Google BigQuery* (service account with BigQuery Data Viewer + Job User) and *Header Auth* (name `Authorization`, value `Bearer <your key>`) - used by BOTH HTTP nodes.\n5. URLs point at https://jwacrm.vercel.app - change them if your domain differs.\n\n**How a run works:** all customers are sent in batches tagged with one run id. Only if every batch saved, the last step retires customers no longer in the feed (they are hidden, not deleted, and come back automatically if they reappear). A partial run never retires anyone.\n\nRun **Manual** first and check `/engagement`. The schedule is off until you activate the workflow.\n\n**Speed:** customer batches go 3 at a time (every 2 s, within the API key's 120 requests/min). Insights and attribution sit ABOVE the customer branch so n8n runs them first and the Insights page updates within a minute.\n\n**Three branches:** customers (batches + finish), the Customer Insights snapshot, and recent orders for campaign revenue attribution.",
         "height": 480,
         "width": 520,
         "color": 4
@@ -65,7 +65,7 @@
       "typeVersion": 2.1,
       "position": [
         260,
-        200
+        1100
       ]
     },
     {
@@ -78,21 +78,7 @@
       "typeVersion": 2,
       "position": [
         520,
-        200
-      ]
-    },
-    {
-      "parameters": {
-        "batchSize": 1,
-        "options": {}
-      },
-      "id": "n-loop",
-      "name": "Loop over batches",
-      "type": "n8n-nodes-base.splitInBatches",
-      "typeVersion": 3,
-      "position": [
-        780,
-        200
+        1100
       ]
     },
     {
@@ -107,7 +93,13 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ run_id: $json.run_id, customers: $json.customers, create_contacts: false }) }}",
         "options": {
-          "timeout": 90000
+          "timeout": 90000,
+          "batching": {
+            "batch": {
+              "batchSize": 3,
+              "batchInterval": 2000
+            }
+          }
         }
       },
       "id": "n-post",
@@ -115,28 +107,13 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1040,
-        300
+        780,
+        1100
       ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
       "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "amount": 1,
-        "unit": "seconds"
-      },
-      "id": "n-wait",
-      "name": "Pause 1s",
-      "type": "n8n-nodes-base.wait",
-      "typeVersion": 1.1,
-      "position": [
-        1300,
-        300
-      ],
-      "webhookId": "lulu-sync-pause"
     },
     {
       "parameters": {
@@ -148,7 +125,7 @@
       "typeVersion": 2,
       "position": [
         1040,
-        100
+        1100
       ]
     },
     {
@@ -181,7 +158,7 @@
       "typeVersion": 2,
       "position": [
         1300,
-        100
+        1100
       ]
     },
     {
@@ -204,7 +181,7 @@
       "typeVersion": 4.2,
       "position": [
         1560,
-        40
+        1100
       ],
       "retryOnFail": true,
       "maxTries": 3,
@@ -239,7 +216,7 @@
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        520,
+        780,
         520
       ]
     },
@@ -262,7 +239,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        780,
+        1040,
         520
       ],
       "retryOnFail": true,
@@ -345,7 +322,7 @@
       "typeVersion": 2.1,
       "position": [
         520,
-        660
+        520
       ],
       "executeOnce": true
     }
@@ -408,24 +385,6 @@
       "main": [
         [
           {
-            "node": "Loop over batches",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Loop over batches": {
-      "main": [
-        [
-          {
-            "node": "Summary",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
             "node": "POST to WACRM sync",
             "type": "main",
             "index": 0
@@ -437,18 +396,7 @@
       "main": [
         [
           {
-            "node": "Pause 1s",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Pause 1s": {
-      "main": [
-        [
-          {
-            "node": "Loop over batches",
+            "node": "Summary",
             "type": "main",
             "index": 0
           }
