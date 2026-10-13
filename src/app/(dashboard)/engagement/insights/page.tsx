@@ -9,12 +9,18 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
-import type { InsightRow } from "@/lib/lulu/insights";
+import { comparePairs, currentPeriod, type InsightRow, type MomMetric } from "@/lib/lulu/insights";
 import {
   CohortHeatmap,
   DIM_METRIC_LABEL,
-  DeptTable,
   DimMonthly,
+  GroupName,
+  MOM_METRIC_OPTIONS,
+  MomTable,
+  MoversPanel,
+  Toggle,
+  deptLabel,
+  groupLabels,
   DowHourHeatmap,
   PairsTable,
   FrequencyTable,
@@ -48,6 +54,11 @@ interface BaseCounts {
   optedOut: number;
 }
 
+const monthName = (m: string) => {
+  const [y, mo] = m.split("-").map(Number);
+  return new Date(Date.UTC(y, mo - 1, 1)).toLocaleString("en-US", { month: "short", timeZone: "UTC" });
+};
+
 const CHANNEL_LABEL: Record<string, string> = { ios: "iOS app", android: "Android app", website: "Website", unknown: "Unknown" };
 const channelLabel = (c: string) => CHANNEL_LABEL[c] ?? c;
 
@@ -77,6 +88,13 @@ export default function CustomerInsightsPage() {
   const [storeMetric, setStoreMetric] = useState<DimMetric>("orders");
   const [channelMetric, setChannelMetric] = useState<DimMetric>("revenue");
   const [rankBy, setRankBy] = useState<"revenue" | "customers">("customers");
+  const [moverMetric, setMoverMetric] = useState<MomMetric>("orders");
+  const [moverPair, setMoverPair] = useState<"full" | "td">("full");
+  const [prodView, setProdView] = useState<"monthly" | "last90">("monthly");
+  const [prodLevel, setProdLevel] = useState<"group_monthly" | "product_monthly">("group_monthly");
+  const [prodMetric, setProdMetric] = useState<MomMetric>("orders");
+  const [prodFilter, setProdFilter] = useState<"all" | "growing" | "falling">("all");
+  const [deptMetric, setDeptMetric] = useState<MomMetric>("orders");
 
   useEffect(() => {
     if (!accountId) return;
@@ -126,6 +144,14 @@ export default function CustomerInsightsPage() {
   const rows = snap?.rows ?? [];
   const asOf = snap?.data_as_of ?? null;
   const share = (n: number) => (counts && counts.total ? pct(n / counts.total) : "—");
+  const labels = groupLabels(rows);
+  const { day } = currentPeriod(asOf);
+  const pairOptions: ["full" | "td", string][] = comparePairs(rows, "dept", asOf).map((p) => [
+    p.key,
+    p.partial
+      ? `${monthName(p.cur)} 1–${day ?? ""} vs ${monthName(p.prev)} 1–${day ?? ""}`
+      : `${monthName(p.cur)} vs ${monthName(p.prev)}`,
+  ]);
 
   return (
     <div className="space-y-6 p-4 sm:p-6">
@@ -245,32 +271,106 @@ export default function CustomerInsightsPage() {
           </div>
 
           <Section
-            title="Products driving sales"
-            hint="Top products in the last 90 days of picking data vs the 90 days before (scaled to a full 90 days where picking data was shorter). 'Customers' shows everyday drivers; 'Revenue' is pulled up by one-off electronics."
+            title="What moved sales"
+            hint="Departments and product groups that pushed sales up or pulled them down compared with the month before."
             right={
-              <div className="flex gap-1 rounded-lg bg-muted/60 p-1">
-                {(["customers", "revenue"] as const).map((k) => (
-                  <button
-                    key={k}
-                    type="button"
-                    onClick={() => setRankBy(k)}
-                    className={`rounded-md px-2 py-1 text-xs ${rankBy === k ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground"}`}
-                  >
-                    Rank by {k}
-                  </button>
-                ))}
+              <div className="flex flex-wrap gap-2">
+                {pairOptions.length > 1 && <Toggle value={moverPair} options={pairOptions} onChange={setMoverPair} />}
+                <Toggle value={moverMetric} options={MOM_METRIC_OPTIONS} onChange={setMoverMetric} />
               </div>
             }
           >
-            <ProductsTable rows={rows} rankBy={rankBy} />
+            <MoversPanel rows={rows} asOf={asOf} metric={moverMetric} pairKey={moverPair} />
+          </Section>
+
+          <Section
+            title="Products driving sales"
+            hint={
+              prodView === "monthly"
+                ? "Month by month, with the change vs the month before. Product groups add up all brands and sizes of the same item, so a SKU switch doesn't look like a collapse."
+                : "Top products in the last 90 days of picking data vs the 90 days before (scaled to a full 90 days where picking data was shorter). 'Customers' shows everyday drivers; 'Revenue' is pulled up by one-off electronics."
+            }
+            right={
+              <div className="flex flex-wrap gap-2">
+                <Toggle
+                  value={prodView}
+                  options={[
+                    ["monthly", "Month by month"],
+                    ["last90", "Last 90 days"],
+                  ]}
+                  onChange={setProdView}
+                />
+                {prodView === "monthly" ? (
+                  <>
+                    <Toggle
+                      value={prodLevel}
+                      options={[
+                        ["group_monthly", "Product groups"],
+                        ["product_monthly", "Single products"],
+                      ]}
+                      onChange={setProdLevel}
+                    />
+                    <Toggle value={prodMetric} options={MOM_METRIC_OPTIONS} onChange={setProdMetric} />
+                    <Toggle
+                      value={prodFilter}
+                      options={[
+                        ["all", "Top"],
+                        ["growing", "Growing"],
+                        ["falling", "Falling"],
+                      ]}
+                      onChange={setProdFilter}
+                    />
+                  </>
+                ) : (
+                  <Toggle
+                    value={rankBy}
+                    options={[
+                      ["customers", "Rank by customers"],
+                      ["revenue", "Rank by revenue"],
+                    ]}
+                    onChange={setRankBy}
+                  />
+                )}
+              </div>
+            }
+          >
+            {prodView === "monthly" ? (
+              <MomTable
+                key={prodLevel}
+                rows={rows}
+                grp={prodLevel}
+                metric={prodMetric}
+                asOf={asOf}
+                filter={prodFilter}
+                limit={30}
+                label={(d) => (prodLevel === "group_monthly" ? <GroupName code={d} labels={labels} /> : d)}
+              />
+            ) : (
+              <ProductsTable rows={rows} rankBy={rankBy} />
+            )}
           </Section>
 
           <Section title="Frequently bought together" hint="Product pairs that land in the same basket far more often than chance.">
             <PairsTable rows={rows} />
           </Section>
 
-          <Section title="Departments month-on-month">
-            <DeptTable rows={rows} />
+          <Section
+            title="Departments month-on-month"
+            hint="Each month with its change vs the month before. 'vs all orders' shows whether a department is doing better or worse than the business overall."
+            right={<Toggle value={deptMetric} options={MOM_METRIC_OPTIONS} onChange={setDeptMetric} />}
+          >
+            <MomTable
+              rows={rows}
+              grp="dept"
+              metric={deptMetric}
+              asOf={asOf}
+              limit={25}
+              label={(d) => (
+                <>
+                  {deptLabel(d)} <span className="text-xs text-muted-foreground">{d}</span>
+                </>
+              )}
+            />
           </Section>
         </>
       )}

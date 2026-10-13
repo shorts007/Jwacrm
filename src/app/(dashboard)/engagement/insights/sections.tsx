@@ -20,13 +20,21 @@ import {
 } from "recharts";
 import {
   cohortMatrix,
+  comparePairs,
+  currentPeriod,
   dimMonthTable,
   dowHourGrid,
+  momTable,
   monthlySeries,
+  movers,
   pctChange,
   rateTable,
   type InsightRow,
+  type MomCell,
+  type MomMetric,
+  type MomRow,
   type MonthPoint,
+  type Mover,
 } from "@/lib/lulu/insights";
 import { cn } from "@/lib/utils";
 
@@ -553,43 +561,248 @@ export function ProductsTable({ rows, rankBy = "revenue" }: { rows: InsightRow[]
   );
 }
 
-export function DeptTable({ rows }: { rows: InsightRow[] }) {
-  const months = [...new Set(rows.filter((r) => r.grp === "dept").map((r) => r.period))].sort().slice(-6);
-  const depts = new Map<string, number[]>();
-  for (const r of rows) {
-    if (r.grp !== "dept" || !months.includes(r.period)) continue;
-    const arr = depts.get(r.dim_value) ?? Array(months.length).fill(0);
-    arr[months.indexOf(r.period)] = r.value;
-    depts.set(r.dim_value, arr);
+// ------------------------------------------------------------------ month-on-month: departments & product groups
+
+export function Toggle<T extends string>({ value, options, onChange }: { value: T; options: [T, string][]; onChange: (v: T) => void }) {
+  return (
+    <div className="flex flex-wrap gap-1 rounded-lg bg-muted/60 p-1">
+      {options.map(([k, label]) => (
+        <button
+          key={k}
+          type="button"
+          onClick={() => onChange(k)}
+          className={`rounded-md px-2 py-1 text-xs ${value === k ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground"}`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export const MOM_METRIC_OPTIONS: [MomMetric, string][] = [
+  ["orders", "Orders"],
+  ["customers", "Customers"],
+  ["revenue", "Revenue"],
+];
+
+/** code → best-selling product of the group and how many products it has. */
+export function groupLabels(rows: InsightRow[]) {
+  const out = new Map<string, { name: string; products: number }>();
+  for (const r of rows) if (r.grp === "group_label") out.set(r.dim, { name: r.dim_value, products: r.value });
+  return out;
+}
+
+export function GroupName({ code, labels }: { code: string; labels: Map<string, { name: string; products: number }> }) {
+  const l = labels.get(code);
+  if (!l) return <span>Group {code}</span>;
+  return (
+    <span title={`Product group ${code} (${deptLabel(code.slice(0, 3))}) — ${l.products} product${l.products === 1 ? "" : "s"} counted together`}>
+      {l.name}
+      {l.products > 1 && <span className="ml-1 text-xs text-muted-foreground">+{l.products - 1} similar</span>}
+    </span>
+  );
+}
+
+const ptsDiff = (a: number | null, b: number | null) => (a === null || b === null ? null : a - b);
+
+function Gap({ value }: { value: number | null }) {
+  if (value === null) return <span className="text-xs text-muted-foreground">—</span>;
+  const pts = Math.round(value * 100);
+  return (
+    <span className={cn("text-xs font-medium", pts === 0 ? "text-muted-foreground" : pts > 0 ? "text-emerald-600" : "text-red-600")}>
+      {pts > 0 ? "+" : ""}
+      {pts} pts
+    </span>
+  );
+}
+
+const periodHead = (m: string, current: string | null, day: number | null) =>
+  m === current && day ? `${monthLabel(m)} · 1–${day}` : monthLabel(m);
+
+/**
+ * Months as columns, each value with a small ▲/▼ vs the month before. The month-to-date column is
+ * compared with the SAME DAYS of the previous month. "vs all orders" = this row's latest change minus
+ * the change in all orders: positive = growing faster (or falling slower) than the business.
+ */
+export function MomTable({
+  rows,
+  grp,
+  metric,
+  asOf,
+  label,
+  limit = 15,
+  filter = "all",
+  showTotal = true,
+}: {
+  rows: InsightRow[];
+  grp: "dept" | "group_monthly" | "product_monthly";
+  metric: MomMetric;
+  asOf: string | null;
+  label: (dim: string) => ReactNode;
+  limit?: number;
+  filter?: "all" | "growing" | "falling";
+  showTotal?: boolean;
+}) {
+  const t = momTable(rows, grp, metric, asOf);
+  if (t.rows.length === 0 || t.months.length === 0) {
+    return <p className="text-sm text-muted-foreground">No data yet — re-run create_insights_view.sql in BigQuery and the n8n sync.</p>;
   }
-  const list = [...depts.entries()].sort((a, b) => (b[1].at(-1) ?? 0) - (a[1].at(-1) ?? 0)).slice(0, 15);
-  if (list.length === 0) return <p className="text-sm text-muted-foreground">No department data.</p>;
+  const last = t.months.length - 1;
+  const totalChange = t.total?.cells[last]?.change ?? null;
+  let list = t.rows;
+  if (filter !== "all") {
+    list = list
+      .filter((r) => {
+        const c = r.cells[last]?.change;
+        return c !== null && c !== undefined && (filter === "growing" ? c > 0 : c < 0);
+      })
+      .sort((a, b) => {
+        // biggest movers in absolute terms first (a big product moving 10% matters more than a tiny one doubling)
+        const d = (r: MomRow) => {
+          const c = r.cells[last];
+          return c?.value && c.change !== null ? c.value - c.value / (1 + c.change) : 0;
+        };
+        return filter === "growing" ? d(b) - d(a) : d(a) - d(b);
+      });
+  }
+  list = list.slice(0, limit);
+  const cell = (c: MomCell, i: number) => (
+    <td key={i} className="px-2 py-1.5 text-right align-top">
+      <div className="tabular-nums">{c.value === null ? "—" : n0(c.value)}</div>
+      <div className="leading-none">{i === 0 && c.change === null ? null : <Delta value={c.change} />}</div>
+    </td>
+  );
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-left text-sm">
         <thead className="text-xs text-muted-foreground">
           <tr>
-            <th className="px-2 py-1.5 font-medium">Department</th>
-            {months.map((m) => (
-              <th key={m} className="px-2 py-1.5 text-right font-medium">{monthLabel(m)}</th>
+            <th className="px-2 py-1.5 font-medium">{grp === "dept" ? "Department" : "Product"}</th>
+            {t.months.map((m) => (
+              <th key={m} className="whitespace-nowrap px-2 py-1.5 text-right font-medium">
+                {periodHead(m, t.current, t.day)}
+              </th>
             ))}
+            {showTotal && t.total && (
+              <th className="whitespace-nowrap px-2 py-1.5 text-right font-medium" title="Latest change of this row minus the change in all orders">
+                vs all orders
+              </th>
+            )}
           </tr>
         </thead>
         <tbody>
-          {list.map(([dept, vals]) => (
-            <tr key={dept} className="border-t border-border">
-              <td className="px-2 py-1.5 text-foreground">
-                {deptLabel(dept)} <span className="text-xs text-muted-foreground">{dept}</span>
-              </td>
-              {vals.map((v, i) => (
-                <td key={i} className="px-2 py-1.5 text-right tabular-nums">{n0(v)}</td>
-              ))}
+          {showTotal && t.total && (
+            <tr className="border-t border-border bg-muted/40 font-medium">
+              <td className="px-2 py-1.5 text-foreground">All orders{metric === "revenue" ? " (order value)" : ""}</td>
+              {t.total.cells.map(cell)}
+              <td />
+            </tr>
+          )}
+          {list.map((r) => (
+            <tr key={r.dim} className="border-t border-border">
+              <td className="px-2 py-1.5 text-foreground">{label(r.dim)}</td>
+              {r.cells.map(cell)}
+              {showTotal && t.total && (
+                <td className="px-2 py-1.5 text-right align-top">
+                  <Gap value={ptsDiff(r.cells[last]?.change ?? null, totalChange)} />
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
       </table>
       <p className="mt-1 text-xs text-muted-foreground">
-        Revenue in SAR from picking data. Names are worked out from the products in each department code (shown in grey).
+        ▲/▼ = change vs the month before{t.current && t.day ? `; ${monthLabel(t.current)} is compared with the same ${t.day} days of the previous month` : ""}.
+        {t.adjusted && " Figures are scaled up for the few orders without picking detail (a feed gap is not a drop)."}
+        {metric === "revenue" && " Revenue in SAR from picked items."}
+      </p>
+    </div>
+  );
+}
+
+function MoverList({
+  title,
+  items,
+  label,
+  tone,
+}: {
+  title: string;
+  items: Mover[];
+  label: (dim: string) => ReactNode;
+  tone: "up" | "down";
+}) {
+  const max = Math.max(1, ...items.map((m) => Math.abs(m.delta)));
+  return (
+    <div>
+      <div className={cn("mb-1 text-xs font-semibold", tone === "up" ? "text-emerald-700" : "text-red-700")}>{title}</div>
+      {items.length === 0 ? (
+        <p className="text-xs text-muted-foreground">None</p>
+      ) : (
+        <ul className="space-y-1.5">
+          {items.map((m) => (
+            <li key={m.dim} className="text-sm">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="min-w-0 truncate text-foreground">{label(m.dim)}</span>
+                <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                  {n0(m.before)} → {n0(m.now)}{" "}
+                  <span className={tone === "up" ? "text-emerald-600" : "text-red-600"}>
+                    ({m.delta > 0 ? "+" : ""}
+                    {n0(m.delta)}
+                    {m.change !== null ? `, ${m.change > 0 ? "+" : ""}${(m.change * 100).toFixed(0)}%` : ""})
+                  </span>
+                </span>
+              </div>
+              <div className="mt-0.5 h-1 rounded bg-muted">
+                <div
+                  className={cn("h-1 rounded", tone === "up" ? "bg-emerald-500" : "bg-red-500")}
+                  style={{ width: `${(Math.abs(m.delta) / max) * 100}%` }}
+                />
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** Which departments and product groups pushed sales up or pulled them down between two months. */
+export function MoversPanel({ rows, asOf, metric, pairKey }: { rows: InsightRow[]; asOf: string | null; metric: MomMetric; pairKey: "full" | "td" }) {
+  const pairs = comparePairs(rows, "dept", asOf);
+  const pair = pairs.find((p) => p.key === pairKey) ?? pairs[0];
+  if (!pair) return <p className="text-sm text-muted-foreground">No data yet — re-run create_insights_view.sql in BigQuery and the n8n sync.</p>;
+  const labels = groupLabels(rows);
+  const dept = movers(rows, "dept", metric, pair, asOf);
+  const grp = movers(rows, "group_monthly", metric, pair, asOf);
+  const { day } = currentPeriod(asOf);
+  const span = pair.partial && day ? ` 1–${day}` : "";
+  const what = metric === "orders" ? "orders" : metric === "customers" ? "customers" : "revenue (SAR)";
+  return (
+    <div className="space-y-4">
+      {dept.total && (
+        <p className="text-sm text-foreground">
+          All {what}: {monthLabel(pair.prev)}
+          {span} <span className="tabular-nums">{n0(dept.total.before)}</span> → {monthLabel(pair.cur)}
+          {span} <span className="tabular-nums">{n0(dept.total.now)}</span> <Delta value={dept.total.change} />
+        </p>
+      )}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="space-y-3 rounded-lg border border-border p-3">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Departments</div>
+          <MoverList title="Pushing up" items={dept.up.slice(0, 6)} label={(d) => deptLabel(d)} tone="up" />
+          <MoverList title="Pulling down" items={dept.down.slice(0, 6)} label={(d) => deptLabel(d)} tone="down" />
+        </div>
+        <div className="space-y-3 rounded-lg border border-border p-3">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Product groups</div>
+          <MoverList title="Pushing up" items={grp.up.slice(0, 8)} label={(d) => <GroupName code={d} labels={labels} />} tone="up" />
+          <MoverList title="Pulling down" items={grp.down.slice(0, 8)} label={(d) => <GroupName code={d} labels={labels} />} tone="down" />
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Ranked by the change in {what}, not by %, so big everyday groups come before small ones that doubled. A product group = all brands and
+        sizes of the same item (e.g. all 30-pc egg trays), so a switch from one SKU to another does not show as a collapse.
+        {metric !== "revenue" && " An order with items from several departments counts in each of them."}
       </p>
     </div>
   );

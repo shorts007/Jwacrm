@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   cohortMatrix,
+  comparePairs,
+  currentPeriod,
   dataAsOf,
+  momTable,
+  movers,
   dimMonthTable,
   dowHourGrid,
   monthlySeries,
@@ -67,5 +71,72 @@ describe("insights helpers", () => {
     expect(cohortMatrix(rows, "2026-03")[0].shares).toEqual([1, 0.3]);
     expect(dowHourGrid(rows)[5][19]).toBe(42);
     expect(dataAsOf(rows)).toBe("2026-10-05T15:08:06Z");
+  });
+});
+
+describe("month-on-month (departments / product groups)", () => {
+  const asOf = "2026-10-12T15:13:57Z"; // 12 Oct Riyadh
+  const mm: InsightRow[] = [
+    // all orders + picking coverage (Sep: 90% of orders have picking detail, Aug: 100%)
+    r("picking_coverage", "2026-08", "all", "all", "orders", 1000),
+    r("picking_coverage", "2026-08", "all", "all", "picked_orders", 1000),
+    r("picking_coverage", "2026-08", "all", "all", "orders_td", 400),
+    r("picking_coverage", "2026-08", "all", "all", "picked_orders_td", 400),
+    r("picking_coverage", "2026-09", "all", "all", "orders", 1000),
+    r("picking_coverage", "2026-09", "all", "all", "picked_orders", 900),
+    r("picking_coverage", "2026-09", "all", "all", "orders_td", 400),
+    r("picking_coverage", "2026-09", "all", "all", "picked_orders_td", 400),
+    r("picking_coverage", "2026-10", "all", "all", "orders", 300),
+    r("picking_coverage", "2026-10", "all", "all", "picked_orders", 300),
+    r("picking_coverage", "2026-10", "all", "all", "orders_td", 300),
+    r("picking_coverage", "2026-10", "all", "all", "picked_orders_td", 300),
+    // Apr: picking feed barely started — hidden
+    r("picking_coverage", "2026-04", "all", "all", "orders", 1000),
+    r("picking_coverage", "2026-04", "all", "all", "picked_orders", 200),
+    r("dept", "2026-04", "dept", "001", "orders", 100),
+    r("dept", "2026-08", "dept", "001", "orders", 500),
+    r("dept", "2026-08", "dept", "001", "orders_td", 200),
+    r("dept", "2026-09", "dept", "001", "orders", 450), // 450 / 0.9 = 500 → flat, not -10%
+    r("dept", "2026-09", "dept", "001", "orders_td", 200),
+    r("dept", "2026-10", "dept", "001", "orders", 150),
+    r("dept", "2026-10", "dept", "001", "orders_td", 150),
+    r("dept", "2026-08", "dept", "011", "orders", 100),
+    r("dept", "2026-09", "dept", "011", "orders", 180), // 200 adjusted → +100
+    r("dept", "2026-09", "dept", "011", "orders_td", 80),
+    r("dept", "2026-10", "dept", "011", "orders", 40),
+  ];
+
+  it("reads the month-to-date and day in Riyadh time", () => {
+    expect(currentPeriod(asOf)).toEqual({ month: "2026-10", day: 12 });
+    expect(currentPeriod("2026-09-30T22:30:00Z")).toEqual({ month: "2026-10", day: 1 });
+    expect(currentPeriod(null)).toEqual({ month: null, day: null });
+  });
+
+  it("scales by picking coverage, hides months without picking data, compares MTD like-for-like", () => {
+    const t = momTable(mm, "dept", "orders", asOf);
+    expect(t.months).toEqual(["2026-08", "2026-09", "2026-10"]);
+    const g = t.rows.find((x) => x.dim === "001")!;
+    expect(g.cells[1].value).toBeCloseTo(500);
+    expect(g.cells[1].change).toBeCloseTo(0);
+    // Oct 1–12: 150 vs Sep 1–12: 200 → -25%
+    expect(g.cells[2].change).toBeCloseTo(-0.25);
+    // all orders: Oct 300 vs Sep 1–12 400 → -25%
+    expect(t.total!.cells[2].change).toBeCloseTo(-0.25);
+    expect(t.total!.cells[1].change).toBeCloseTo(0);
+  });
+
+  it("offers last-complete and month-to-date comparisons and ranks movers by change", () => {
+    const pairs = comparePairs(mm, "dept", asOf);
+    expect(pairs.map((p) => [p.key, p.cur, p.prev])).toEqual([
+      ["full", "2026-09", "2026-08"],
+      ["td", "2026-10", "2026-09"],
+    ]);
+    const m = movers(mm, "dept", "orders", pairs[0], asOf);
+    expect(m.up.map((x) => x.dim)).toEqual(["011"]);
+    expect(m.up[0].delta).toBeCloseTo(100);
+    expect(m.down).toEqual([]); // 001 is flat once the coverage gap is accounted for
+    const td = movers(mm, "dept", "orders", pairs[1], asOf);
+    expect(td.down.map((x) => x.dim)).toEqual(["001", "011"]); // -50 before -40
+    expect(td.total!.change).toBeCloseTo(-0.25);
   });
 });
