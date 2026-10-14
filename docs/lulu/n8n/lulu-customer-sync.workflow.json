@@ -117,7 +117,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Totals across all batches. Failed HTTP calls were retried 3x, then kept going.\nconst res = $('POST to WACRM sync').all().map(i => i.json);\nconst sum = k => res.reduce((a, r) => a + (Number(r[k]) || 0), 0);\nconst failedBatches = res.filter(r => r.error || r.received === undefined).length;\nconst first = $('Build batches of 2000').first().json;\nreturn [{ json: {\n  run_id: first.run_id,\n  batches: res.length,\n  failed_batches: failedBatches,\n  customers_received: sum('received'),\n  customers_saved: sum('upserted'),\n  customers_failed: sum('failed'),\n  contacts_linked: sum('contacts_linked'),\n  data_as_of: first.customers[0]?.data_as_of ?? null,\n  ok: failedBatches === 0 && sum('failed') === 0,\n}}];"
+        "jsCode": "// Totals across all batches. Failed HTTP calls were retried 3x, then kept going.\n// The app replies { data: {...} } (errors: { error: {...} }).\nconst res = $('POST to WACRM sync').all().map(i => i.json.data ?? i.json);\nconst sum = k => res.reduce((a, r) => a + (Number(r[k]) || 0), 0);\nconst failedBatches = res.filter(r => r.error || r.received === undefined).length;\nconst first = $('Build batches of 2000').first().json;\nreturn [{ json: {\n  run_id: first.run_id,\n  batches: res.length,\n  failed_batches: failedBatches,\n  customers_received: sum('received'),\n  customers_saved: sum('upserted'),\n  customers_failed: sum('failed'),\n  contacts_linked: sum('contacts_linked'),\n  data_as_of: first.customers[0]?.data_as_of ?? null,\n  ok: failedBatches === 0 && sum('failed') === 0,\n}}];"
       },
       "id": "n-sum",
       "name": "Summary",

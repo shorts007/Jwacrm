@@ -85,7 +85,7 @@
           "conditions": [
             {
               "id": "q",
-              "leftValue": "={{ $json.queued }}",
+              "leftValue": "={{ ($json.data ?? $json).queued }}",
               "rightValue": 0,
               "operator": {
                 "type": "number",
@@ -108,7 +108,7 @@
     },
     {
       "parameters": {
-        "amount": "={{ $json.first_wait_seconds || 60 }}",
+        "amount": "={{ ($json.data ?? $json).first_wait_seconds || 60 }}",
         "unit": "seconds"
       },
       "name": "Wait first gap",
@@ -159,7 +159,7 @@
           "conditions": [
             {
               "id": "d",
-              "leftValue": "={{ $json.done }}",
+              "leftValue": "={{ ($json.data ?? $json).done }}",
               "rightValue": "",
               "operator": {
                 "type": "boolean",
@@ -193,7 +193,7 @@
     },
     {
       "parameters": {
-        "amount": "={{ $json.next_wait_seconds || 60 }}",
+        "amount": "={{ ($json.data ?? $json).next_wait_seconds || 60 }}",
         "unit": "seconds"
       },
       "name": "Wait next gap",
