@@ -14,7 +14,7 @@
 //     "create_contacts": false }
 //
 // Rules
-//   - Max 500 customers per request (key limit is 120 req/min).
+//   - Max 2,000 customers per request (key limit is 120 req/min).
 //   - Phones in lulu_opt_outs (replied STOP) are always stored opted-out.
 //   - Opt-out is STICKY: a profile already marked marketing_opt_in=false
 //     can never be flipped back to true by a sync (a customer's STOP must
@@ -39,6 +39,8 @@ import {
 
 const CONTACT_CREATE_CONCURRENCY = 10;
 const LOOKUP_CHUNK = 200;
+
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {

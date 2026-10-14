@@ -70,10 +70,10 @@
     },
     {
       "parameters": {
-        "jsCode": "// Split the customer master into batches of 500 (the sync API limit).\n// run_id tags every batch of THIS run so the final \"finish\" call can retire customers that are no longer in the feed.\nconst rows = $input.all().map(i => i.json);\nif (rows.length === 0) throw new Error('BigQuery returned 0 customers - check the view and focus_cities');\nconst BATCH = 500;\nconst run_id = 'run-' + $execution.id + '-' + Date.now().toString(36);\nconst out = [];\nfor (let i = 0; i < rows.length; i += BATCH) {\n  out.push({ json: { batch: out.length + 1, run_id, customers: rows.slice(i, i + BATCH) } });\n}\nreturn out;"
+        "jsCode": "// Split the customer master into batches of 2000 (the sync API limit).\n// run_id tags every batch of THIS run so the final \"finish\" call can retire customers that are no longer in the feed.\nconst rows = $input.all().map(i => i.json);\nif (rows.length === 0) throw new Error('BigQuery returned 0 customers - check the view and focus_cities');\nconst BATCH = 2000;\nconst run_id = 'run-' + $execution.id + '-' + Date.now().toString(36);\nconst out = [];\nfor (let i = 0; i < rows.length; i += BATCH) {\n  out.push({ json: { batch: out.length + 1, run_id, customers: rows.slice(i, i + BATCH) } });\n}\nreturn out;"
       },
       "id": "n-batch",
-      "name": "Build batches of 500",
+      "name": "Build batches of 2000",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
@@ -117,7 +117,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Totals across all batches. Failed HTTP calls were retried 3x, then kept going.\nconst res = $('POST to WACRM sync').all().map(i => i.json);\nconst sum = k => res.reduce((a, r) => a + (Number(r[k]) || 0), 0);\nconst failedBatches = res.filter(r => r.error || r.received === undefined).length;\nconst first = $('Build batches of 500').first().json;\nreturn [{ json: {\n  run_id: first.run_id,\n  batches: res.length,\n  failed_batches: failedBatches,\n  customers_received: sum('received'),\n  customers_saved: sum('upserted'),\n  customers_failed: sum('failed'),\n  contacts_linked: sum('contacts_linked'),\n  data_as_of: first.customers[0]?.data_as_of ?? null,\n  ok: failedBatches === 0 && sum('failed') === 0,\n}}];"
+        "jsCode": "// Totals across all batches. Failed HTTP calls were retried 3x, then kept going.\nconst res = $('POST to WACRM sync').all().map(i => i.json);\nconst sum = k => res.reduce((a, r) => a + (Number(r[k]) || 0), 0);\nconst failedBatches = res.filter(r => r.error || r.received === undefined).length;\nconst first = $('Build batches of 2000').first().json;\nreturn [{ json: {\n  run_id: first.run_id,\n  batches: res.length,\n  failed_batches: failedBatches,\n  customers_received: sum('received'),\n  customers_saved: sum('upserted'),\n  customers_failed: sum('failed'),\n  contacts_linked: sum('contacts_linked'),\n  data_as_of: first.customers[0]?.data_as_of ?? null,\n  ok: failedBatches === 0 && sum('failed') === 0,\n}}];"
       },
       "id": "n-sum",
       "name": "Summary",
@@ -374,14 +374,14 @@
       "main": [
         [
           {
-            "node": "Build batches of 500",
+            "node": "Build batches of 2000",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Build batches of 500": {
+    "Build batches of 2000": {
       "main": [
         [
           {

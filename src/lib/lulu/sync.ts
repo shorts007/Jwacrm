@@ -3,7 +3,8 @@ import { lifecycleStage } from "./lifecycle";
 import type { CrossSell, CustomerProfile, LifecycleStage, UsualItem } from "./types";
 
 /** Max customers per sync request (keeps well inside the 120 req/min key limit). */
-export const MAX_SYNC_BATCH = 500;
+// ~860 bytes per customer → 2,000 ≈ 1.7 MB per request (Vercel caps request bodies at 4.5 MB).
+export const MAX_SYNC_BATCH = 2000;
 
 export type PriceSensitivity = "Offer-driven" | "Mixed" | "Full-price";
 const SENSITIVITIES: PriceSensitivity[] = ["Offer-driven", "Mixed", "Full-price"];
