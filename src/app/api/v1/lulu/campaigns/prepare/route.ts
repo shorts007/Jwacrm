@@ -83,8 +83,25 @@ export async function POST(request: Request) {
     if (today.error) throw today.error;
 
     const used = (today.data ?? []).filter((a) => ['SCHEDULED', 'SENDING', 'SENT'].includes(a.status as string)).length;
+    // Messages queued earlier today and not sent yet (e.g. an earlier run stopped): the sender must pick them up.
+    const pendingBefore = (today.data ?? []).filter((a) => a.status === 'SCHEDULED').length;
+    const sentBefore = (today.data ?? []).filter((a) => a.status === 'SENT').length;
     const remainingCap = settings.dailyCap - used;
-    if (remainingCap <= 0) return ok({ queued: 0, blocked: [`Daily cap of ${settings.dailyCap} already used today.`] });
+    if (remainingCap <= 0) {
+      if (pendingBefore > 0) {
+        return ok({
+          queued: pendingBefore,
+          resumed: true,
+          inserted: 0,
+          cap: settings.dailyCap,
+          used_before: used,
+          warnings: [`Daily cap of ${settings.dailyCap} reached by today's queue — sending the ${pendingBefore} message(s) already queued.`],
+          first_wait_seconds: 5, // send-next enforces the real spacing server-side
+          estimated_minutes: Math.round(totalDuration(pendingBefore, settings) / 60),
+        });
+      }
+      return ok({ queued: 0, blocked: [`Daily cap of ${settings.dailyCap} already used today.`] });
+    }
     const { history, receivedCodes, stopDigits } = sendHistory;
 
     const plan = planSends({
@@ -156,9 +173,10 @@ export async function POST(request: Request) {
       queued += data?.length ?? 0;
     }
 
-    const sentToday = (today.data ?? []).filter((a) => a.status === 'SENT').length;
     return ok({
-      queued: toSend,
+      // new messages + any still waiting from an earlier run today (the sender sends both)
+      queued: toSend + pendingBefore,
+      resumed: pendingBefore > 0,
       inserted: queued,
       holdout: holdouts,
       cap: settings.dailyCap,
@@ -166,8 +184,8 @@ export async function POST(request: Request) {
       evaluated: plan.evaluated,
       skipped: plan.skipped,
       warnings,
-      first_wait_seconds: gapBeforeNext(sentToday, settings),
-      estimated_minutes: Math.round(totalDuration(toSend, settings) / 60),
+      first_wait_seconds: gapBeforeNext(sentBefore, settings),
+      estimated_minutes: Math.round(totalDuration(toSend + pendingBefore, settings) / 60),
     });
   } catch (err) {
     return toApiErrorResponse(err);
