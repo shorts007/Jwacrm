@@ -14,7 +14,7 @@
 //     "create_contacts": false }
 //
 // Rules
-//   - Max 500 customers per request (key limit is 120 req/min).
+//   - Max 2,000 customers per request (key limit is 120 req/min).
 //   - Phones in lulu_opt_outs (replied STOP) are always stored opted-out.
 //   - Opt-out is STICKY: a profile already marked marketing_opt_in=false
 //     can never be flipped back to true by a sync (a customer's STOP must
@@ -39,6 +39,8 @@ import {
 
 const CONTACT_CREATE_CONCURRENCY = 10;
 const LOOKUP_CHUNK = 200;
+
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {
@@ -113,61 +115,62 @@ export async function POST(request: Request) {
       return ok({ received: body.customers.length, upserted: 0, failed: errors.length, errors: errors.slice(0, 50) }, 422);
     }
 
-    // 2. Sticky opt-out: look up existing opted-out profiles.
-    const optedOut = new Set<string>();
-    for (let i = 0; i < rows.length; i += LOOKUP_CHUNK) {
-      const ids = rows.slice(i, i + LOOKUP_CHUNK).map((r) => r.customer_id);
-      const { data } = await db
-        .from('lulu_customer_profiles')
-        .select('customer_id')
-        .eq('account_id', accountId)
-        .eq('marketing_opt_in', false)
-        .in('customer_id', ids);
-      for (const r of data ?? []) optedOut.add(r.customer_id as string);
-    }
-    for (const r of rows) if (optedOut.has(r.customer_id)) r.marketing_opt_in = false;
-
-    // Phones that replied STOP on WhatsApp (even before they were a synced customer).
-    const stopDigits = new Set<string>();
-    for (let i = 0; i < rows.length; i += LOOKUP_CHUNK) {
-      const digits = rows.slice(i, i + LOOKUP_CHUNK).map((r) => r.mobile.replace(/\D/g, ''));
-      const { data } = await db
-        .from('lulu_opt_outs')
-        .select('phone_digits')
-        .eq('account_id', accountId)
-        .in('phone_digits', digits);
-      for (const r of data ?? []) stopDigits.add(r.phone_digits as string);
-    }
-    for (const r of rows) if (stopDigits.has(r.mobile.replace(/\D/g, ''))) r.marketing_opt_in = false;
-
-    // Language the customer chose on WhatsApp beats the feed's default.
-    for (let i = 0; i < rows.length; i += LOOKUP_CHUNK) {
-      const digits = rows.slice(i, i + LOOKUP_CHUNK).map((r) => r.mobile.replace(/\D/g, ''));
-      const { data } = await db
-        .from('lulu_language_prefs')
-        .select('phone_digits, language')
-        .eq('account_id', accountId)
-        .in('phone_digits', digits);
-      const pref = new Map((data ?? []).map((p) => [p.phone_digits as string, p.language as string]));
-      for (const r of rows.slice(i, i + LOOKUP_CHUNK)) {
-        const l = pref.get(r.mobile.replace(/\D/g, ''));
-        if (l) r.language = l;
-      }
-    }
-
-    // 3. Link to WACRM contacts by normalized phone (digits-only column).
-    const contactByDigits = new Map<string, string>();
+    // 2–3. Lookups, all in parallel (they are independent): sticky opt-outs, STOP replies,
+    // WhatsApp language choices, and WACRM contacts to link by phone.
     const digitsOf = (mobile: string) => normalizePhone(mobile);
-    for (let i = 0; i < rows.length; i += LOOKUP_CHUNK) {
-      const digits = rows.slice(i, i + LOOKUP_CHUNK).map((r) => digitsOf(r.mobile));
-      const { data } = await db
-        .from('contacts')
-        .select('id, phone_normalized')
-        .eq('account_id', accountId)
-        .in('phone_normalized', digits);
-      for (const c of data ?? []) {
-        contactByDigits.set(c.phone_normalized as string, c.id as string);
-      }
+    const chunks = <T,>(list: T[]) => {
+      const out: T[][] = [];
+      for (let i = 0; i < list.length; i += LOOKUP_CHUNK) out.push(list.slice(i, i + LOOKUP_CHUNK));
+      return out;
+    };
+    const ids = rows.map((r) => r.customer_id);
+    const rawDigits = [...new Set(rows.map((r) => r.mobile.replace(/\D/g, '')))];
+    const normDigits = [...new Set(rows.map((r) => digitsOf(r.mobile)))];
+
+    const [optedRes, stopRes, langRes, contactRes] = await Promise.all([
+      Promise.all(
+        chunks(ids).map((c) =>
+          db
+            .from('lulu_customer_profiles')
+            .select('customer_id')
+            .eq('account_id', accountId)
+            .eq('marketing_opt_in', false)
+            .in('customer_id', c)
+        )
+      ),
+      Promise.all(
+        chunks(rawDigits).map((c) =>
+          db.from('lulu_opt_outs').select('phone_digits').eq('account_id', accountId).in('phone_digits', c)
+        )
+      ),
+      Promise.all(
+        chunks(rawDigits).map((c) =>
+          db.from('lulu_language_prefs').select('phone_digits, language').eq('account_id', accountId).in('phone_digits', c)
+        )
+      ),
+      Promise.all(
+        chunks(normDigits).map((c) =>
+          db.from('contacts').select('id, phone_normalized').eq('account_id', accountId).in('phone_normalized', c)
+        )
+      ),
+    ]);
+
+    const optedOut = new Set<string>();
+    for (const res of optedRes) for (const r of res.data ?? []) optedOut.add(r.customer_id as string);
+    const stopDigits = new Set<string>();
+    for (const res of stopRes) for (const r of res.data ?? []) stopDigits.add(r.phone_digits as string);
+    const pref = new Map<string, string>();
+    for (const res of langRes) for (const p of res.data ?? []) pref.set(p.phone_digits as string, p.language as string);
+    const contactByDigits = new Map<string, string>();
+    for (const res of contactRes) for (const c of res.data ?? []) contactByDigits.set(c.phone_normalized as string, c.id as string);
+
+    for (const r of rows) {
+      const d = r.mobile.replace(/\D/g, '');
+      // Opt-out is sticky, and a STOP on WhatsApp always wins.
+      if (optedOut.has(r.customer_id) || stopDigits.has(d)) r.marketing_opt_in = false;
+      // Language the customer chose on WhatsApp beats the feed's default.
+      const l = pref.get(d);
+      if (l) r.language = l;
     }
 
     let contactsCreated = 0;

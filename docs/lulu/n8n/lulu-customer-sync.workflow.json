@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "content": "## LuLu customer sync (BigQuery -> WACRM)\n**Before running**\n1. In BigQuery run `docs/lulu/bigquery/create_view.sql` (creates `lulu_customer_master`) AND `create_insights_view.sql` (creates `lulu_insights_metrics`) AND `create_recent_orders_view.sql` (creates `lulu_recent_orders`).\n2. In Supabase run migrations 043-055.\n3. In WACRM: Settings -> API keys -> create a key with scope `contacts:write`.\n4. n8n credentials: *Google BigQuery* (service account with BigQuery Data Viewer + Job User) and *Header Auth* (name `Authorization`, value `Bearer <your key>`) - used by BOTH HTTP nodes.\n5. URLs point at https://jwacrm.vercel.app - change them if your domain differs.\n\n**How a run works:** all customers are sent in batches tagged with one run id. Only if every batch saved, the last step retires customers no longer in the feed (they are hidden, not deleted, and come back automatically if they reappear). A partial run never retires anyone.\n\nRun **Manual** first and check `/engagement`. The schedule is off until you activate the workflow.\n\n**Three branches:** customers (batches + finish), the Customer Insights snapshot, and recent orders for campaign revenue attribution.",
+        "content": "## LuLu customer sync (BigQuery -> WACRM)\n**Before running**\n1. In BigQuery run `docs/lulu/bigquery/create_view.sql` (creates `lulu_customer_master`) AND `create_insights_view.sql` (creates `lulu_insights_metrics`) AND `create_insights_trends_view.sql` (creates `lulu_insights_trends`) AND `create_recent_orders_view.sql` (creates `lulu_recent_orders`).\n2. In Supabase run migrations 043-055.\n3. In WACRM: Settings -> API keys -> create a key with scope `contacts:write`.\n4. n8n credentials: *Google BigQuery* (service account with BigQuery Data Viewer + Job User) and *Header Auth* (name `Authorization`, value `Bearer <your key>`) - used by BOTH HTTP nodes.\n5. URLs point at https://jwacrm.vercel.app - change them if your domain differs.\n\n**How a run works:** all customers are sent in batches tagged with one run id. Only if every batch saved, the last step retires customers no longer in the feed (they are hidden, not deleted, and come back automatically if they reappear). A partial run never retires anyone.\n\nRun **Manual** first and check `/engagement`. The schedule is off until you activate the workflow.\n\n**Speed:** customer batches go 3 at a time (every 2 s, within the API key's 120 requests/min). Insights and attribution sit ABOVE the customer branch so n8n runs them first and the Insights page updates within a minute.\n\n**Three branches:** customers (batches + finish), the Customer Insights snapshot, and recent orders for campaign revenue attribution.",
         "height": 480,
         "width": 520,
         "color": 4
@@ -65,34 +65,20 @@
       "typeVersion": 2.1,
       "position": [
         260,
-        200
+        1100
       ]
     },
     {
       "parameters": {
-        "jsCode": "// Split the customer master into batches of 500 (the sync API limit).\n// run_id tags every batch of THIS run so the final \"finish\" call can retire customers that are no longer in the feed.\nconst rows = $input.all().map(i => i.json);\nif (rows.length === 0) throw new Error('BigQuery returned 0 customers - check the view and focus_cities');\nconst BATCH = 500;\nconst run_id = 'run-' + $execution.id + '-' + Date.now().toString(36);\nconst out = [];\nfor (let i = 0; i < rows.length; i += BATCH) {\n  out.push({ json: { batch: out.length + 1, run_id, customers: rows.slice(i, i + BATCH) } });\n}\nreturn out;"
+        "jsCode": "// Split the customer master into batches of 2000 (the sync API limit).\n// run_id tags every batch of THIS run so the final \"finish\" call can retire customers that are no longer in the feed.\nconst rows = $input.all().map(i => i.json);\nif (rows.length === 0) throw new Error('BigQuery returned 0 customers - check the view and focus_cities');\nconst BATCH = 2000;\nconst run_id = 'run-' + $execution.id + '-' + Date.now().toString(36);\nconst out = [];\nfor (let i = 0; i < rows.length; i += BATCH) {\n  out.push({ json: { batch: out.length + 1, run_id, customers: rows.slice(i, i + BATCH) } });\n}\nreturn out;"
       },
       "id": "n-batch",
-      "name": "Build batches of 500",
+      "name": "Build batches of 2000",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         520,
-        200
-      ]
-    },
-    {
-      "parameters": {
-        "batchSize": 1,
-        "options": {}
-      },
-      "id": "n-loop",
-      "name": "Loop over batches",
-      "type": "n8n-nodes-base.splitInBatches",
-      "typeVersion": 3,
-      "position": [
-        780,
-        200
+        1100
       ]
     },
     {
@@ -107,7 +93,13 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ run_id: $json.run_id, customers: $json.customers, create_contacts: false }) }}",
         "options": {
-          "timeout": 90000
+          "timeout": 90000,
+          "batching": {
+            "batch": {
+              "batchSize": 3,
+              "batchInterval": 2000
+            }
+          }
         }
       },
       "id": "n-post",
@@ -115,8 +107,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1040,
-        300
+        780,
+        1100
       ],
       "retryOnFail": true,
       "maxTries": 3,
@@ -125,22 +117,7 @@
     },
     {
       "parameters": {
-        "amount": 1,
-        "unit": "seconds"
-      },
-      "id": "n-wait",
-      "name": "Pause 1s",
-      "type": "n8n-nodes-base.wait",
-      "typeVersion": 1.1,
-      "position": [
-        1300,
-        300
-      ],
-      "webhookId": "lulu-sync-pause"
-    },
-    {
-      "parameters": {
-        "jsCode": "// Totals across all batches. Failed HTTP calls were retried 3x, then kept going.\nconst res = $('POST to WACRM sync').all().map(i => i.json);\nconst sum = k => res.reduce((a, r) => a + (Number(r[k]) || 0), 0);\nconst failedBatches = res.filter(r => r.error || r.received === undefined).length;\nconst first = $('Build batches of 500').first().json;\nreturn [{ json: {\n  run_id: first.run_id,\n  batches: res.length,\n  failed_batches: failedBatches,\n  customers_received: sum('received'),\n  customers_saved: sum('upserted'),\n  customers_failed: sum('failed'),\n  contacts_linked: sum('contacts_linked'),\n  data_as_of: first.customers[0]?.data_as_of ?? null,\n  ok: failedBatches === 0 && sum('failed') === 0,\n}}];"
+        "jsCode": "// Totals across all batches. Failed HTTP calls were retried 3x, then kept going.\nconst res = $('POST to WACRM sync').all().map(i => i.json);\nconst sum = k => res.reduce((a, r) => a + (Number(r[k]) || 0), 0);\nconst failedBatches = res.filter(r => r.error || r.received === undefined).length;\nconst first = $('Build batches of 2000').first().json;\nreturn [{ json: {\n  run_id: first.run_id,\n  batches: res.length,\n  failed_batches: failedBatches,\n  customers_received: sum('received'),\n  customers_saved: sum('upserted'),\n  customers_failed: sum('failed'),\n  contacts_linked: sum('contacts_linked'),\n  data_as_of: first.customers[0]?.data_as_of ?? null,\n  ok: failedBatches === 0 && sum('failed') === 0,\n}}];"
       },
       "id": "n-sum",
       "name": "Summary",
@@ -148,7 +125,7 @@
       "typeVersion": 2,
       "position": [
         1040,
-        100
+        1100
       ]
     },
     {
@@ -181,7 +158,7 @@
       "typeVersion": 2,
       "position": [
         1300,
-        100
+        1100
       ]
     },
     {
@@ -204,7 +181,7 @@
       "typeVersion": 4.2,
       "position": [
         1560,
-        40
+        1100
       ],
       "retryOnFail": true,
       "maxTries": 3,
@@ -232,14 +209,14 @@
     },
     {
       "parameters": {
-        "jsCode": "// All insight rows go in ONE request (a few thousand aggregate rows, no personal data).\nconst rows = $input.all().map(i => i.json);\nif (rows.length === 0) throw new Error('lulu_insights_metrics returned 0 rows - run create_insights_view.sql');\nreturn [{ json: { rows } }];"
+        "jsCode": "// All insight rows go in ONE request (aggregates only, no personal data).\n// Two BigQuery views: lulu_insights_metrics (main) + lulu_insights_trends (month-on-month sections).\nconst main = $('BigQuery insights metrics').all().map(i => i.json);\nconst trends = $('BigQuery insights trends').all().map(i => i.json);\nif (main.length === 0) throw new Error('lulu_insights_metrics returned 0 rows - run create_insights_view.sql');\nif (trends.length === 0) throw new Error('lulu_insights_trends returned 0 rows - run create_insights_trends_view.sql');\nreturn [{ json: { rows: main.concat(trends) } }];"
       },
       "id": "n-ins-build",
       "name": "Build insights payload",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        520,
+        780,
         520
       ]
     },
@@ -262,7 +239,7 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        780,
+        1040,
         520
       ],
       "retryOnFail": true,
@@ -327,6 +304,27 @@
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "projectId": {
+          "__rl": true,
+          "value": "myecomlulu",
+          "mode": "id"
+        },
+        "sqlQuery": "SELECT * FROM `myecomlulu.jackpot.lulu_insights_trends`",
+        "options": {}
+      },
+      "id": "n-ins-trends",
+      "name": "BigQuery insights trends",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2.1,
+      "position": [
+        520,
+        520
+      ],
+      "executeOnce": true
     }
   ],
   "connections": {
@@ -376,33 +374,15 @@
       "main": [
         [
           {
-            "node": "Build batches of 500",
+            "node": "Build batches of 2000",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Build batches of 500": {
+    "Build batches of 2000": {
       "main": [
-        [
-          {
-            "node": "Loop over batches",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Loop over batches": {
-      "main": [
-        [
-          {
-            "node": "Summary",
-            "type": "main",
-            "index": 0
-          }
-        ],
         [
           {
             "node": "POST to WACRM sync",
@@ -416,18 +396,7 @@
       "main": [
         [
           {
-            "node": "Pause 1s",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Pause 1s": {
-      "main": [
-        [
-          {
-            "node": "Loop over batches",
+            "node": "Summary",
             "type": "main",
             "index": 0
           }
@@ -461,7 +430,7 @@
       "main": [
         [
           {
-            "node": "Build insights payload",
+            "node": "BigQuery insights trends",
             "type": "main",
             "index": 0
           }
@@ -495,6 +464,17 @@
         [
           {
             "node": "POST attribution",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BigQuery insights trends": {
+      "main": [
+        [
+          {
+            "node": "Build insights payload",
             "type": "main",
             "index": 0
           }
